@@ -1,0 +1,6 @@
+Research Highlights (for Elsevier Submission Portal):
+• Introduces RIACC, an adaptive gateway-assisted LoRa communication framework.
+• Edge-computed Adaptive Threat Index prioritizes emergency telemetry queues.
+• Gateway maintains 7 runtime state tables for collision-reduced slot grants.
+• Dispatches closed-loop HOLD and WAIT directives to mitigate contention avalanches.
+• Validated on 2,000,000 real events, surging emergency delivery from 0.38% to 54.71%.

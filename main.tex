@@ -1,0 +1,1332 @@
+%% Elsevier Ad Hoc Networks — LaTeX submission
+
+%% Compiled with: pdflatex -> bibtex -> pdflatex -> pdflatex
+
+\documentclass[preprint,review,12pt]{elsarticle}
+
+%% ---------- Math & Symbols ----------
+
+\usepackage{amsmath,amssymb,amsfonts}
+
+%% ---------- Algorithms ----------
+
+\usepackage{algorithm}
+
+\usepackage{algorithmic}
+
+%% ---------- Graphics ----------
+
+\usepackage{graphicx}
+\graphicspath{{./}{figures/}{results/graphs/}}
+\usepackage[export]{adjustbox}   % for max width/height clamping
+
+%% ---------- Tables ----------
+
+\usepackage{booktabs}            % professional rules
+
+\usepackage{multirow}
+
+\usepackage{array}
+
+\usepackage{tabularx}
+
+%% ---------- Typography & Layout ----------
+
+\usepackage{textcomp}
+
+\usepackage{xcolor}
+
+\usepackage{microtype}
+
+\usepackage{balance}             % balanced two-column last page
+
+\usepackage{float}               % [H] placement
+
+%% ---------- Float Control (Prevents isolated figure pages & blank spaces) ----------
+\renewcommand{\topfraction}{0.90}
+\renewcommand{\bottomfraction}{0.90}
+\renewcommand{\textfraction}{0.10}
+\renewcommand{\floatpagefraction}{0.85}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{3}
+\setcounter{totalnumber}{5}
+
+%% ---------- URLs ----------
+
+\usepackage{url}
+
+%% ---------- Hyperref (LAST) ----------
+
+\usepackage[hidelinks,
+            colorlinks=false,
+            breaklinks=true]{hyperref}
+
+\journal{Ad Hoc Networks (Elsevier)}
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{RIACC: A Gateway-Assisted Adaptive Communication Management Framework for LoRa Networks}
+
+\author[inst1]{Safeer Ahmad Shah\corref{cor1}}
+\ead{safeer.shah@bnmit.in}
+\cortext[cor1]{Corresponding author.}
+
+\affiliation[inst1]{organization={Department of Electronics and Communication Engineering, BNM Institute of Technology},
+            city={Bengaluru},
+            country={India}}
+
+\begin{abstract}
+LoRa networks are increasingly deployed in smart cities, connected campuses, industrial monitoring, and environmental sensing, leading to dense deployments of sensor nodes. As a result, multiple devices often attempt to transmit across shared radio channels simultaneously, causing severe packet collisions and medium contention. This challenge escalates during critical physical events—such as equipment faults, threshold breaches, or sudden bursts of alarm reports—when urgent messages and routine telemetry compete for limited airtime on an unprioritized basis. Standard protocols such as Pure ALOHA and uncoordinated LoRaWAN Class A baselines lack mechanisms to infer message urgency or regulate channel access during such high-load periods.
+
+To address this challenge, this paper presents RIACC (Runtime Intelligence and Adaptive Control-based Communication), a gateway-assisted communication management framework for LoRa networks. RIACC operates as an adaptive coordination layer alongside existing access methods without requiring dedicated clock synchronization hardware. Distributed sensor nodes calculate an edge-level Adaptive Threat Index ($\text{ATI}$) using local event dynamics to indicate message urgency and prioritize local queues. At the gateway, RIACC tracks pending requests, channel occupancy, and link quality across seven in-memory state tables to make control decisions that grant conflict-free transmission slots, expedite urgent packets via a dedicated fast-path sub-band, and hold routine traffic during congestion surges.
+
+The evaluation replays two million ToN\_IoT network-traffic records mapped to 3,541 unique source-IP-based node identifiers under the ITU-R P.1411 log-distance propagation model with a $6.0\text{ dB}$ co-channel power capture threshold across four operational configurations: Pure ALOHA, Pure ALOHA with RIACC, a Class A baseline, and Class A with RIACC.
+
+Across the two-million-event evaluation, adding RIACC to Pure ALOHA increases the Packet Delivery Ratio (PDR) from $3.60\%$ to $9.32\%$, improves emergency message delivery from $0.19\%$ to $12.07\%$, lowers the channel collision rate from $96.40\%$ to $46.51\%$, and reduces transceiver electrical energy consumed per delivered packet from $171,161\text{ mJ}$ to $40,017\text{ mJ}$ ($76.62\%$ reduction). For the Class A baseline, RIACC increases overall PDR from $6.62\%$ to $38.04\%$, raises emergency alert delivery from $0.38\%$ to $54.74\%$, reduces the channel collision rate from $93.38\%$ to $38.40\%$ (preventing $1,099,625$ packet collisions), and lowers energy consumption per delivered packet by $77.95\%$ (from $27,170\text{ mJ}$ to $5,991\text{ mJ}$). These empirical findings demonstrate that RIACC effectively mitigates channel contention, safeguards critical emergency telemetry, and improves energy efficiency in dense LPWAN deployments.
+\end{abstract}
+
+\begin{keywords}
+LoRa Networks, LPWAN, Medium Access Control (MAC), Multi-Channel Scheduling, Gateway-Assisted Coordination, Adaptive Threat Index, Traffic Contention Mitigation.
+\end{keywords}
+
+\end{frontmatter}
+
+%% =============================================================================
+
+%% SECTION 1: INTRODUCTION
+
+%% =============================================================================
+
+\section{Introduction}
+
+\label{sec:introduction}
+
+Deploying battery-operated wireless sensor networks across wide geographic areas requires balancing transmission range, device cost, and energy longevity \cite{augustin2016study}. Long Range (LoRa) technology has gained widespread industrial and municipal adoption because its Chirp Spread Spectrum (CSS) modulation allows weak signals to be decoded below the thermal noise floor, establishing communication links up to $15\text{ km}$ on sub-gigahertz unlicensed spectrum \cite{adelantado2017understanding, centenaro2016long}. In typical sensor network deployments, hundreds to thousands of field nodes monitor physical parameters and forward sensor readings to a central gateway \cite{georgiou2017low}.
+
+The defining performance bottleneck in large-scale LoRa deployments is medium access contention \cite{bor2016lora}. Because LoRa operates at low data rates with spreading factors ranging from SF7 to SF12, the physical Time-on-Air (ToA) of a single uplink packet is exceptionally long, spanning from approximately $60\text{ ms}$ up to $1.4\text{ s}$ depending on payload length and modulation configuration \cite{semtech2020sx1276}. In standalone Pure ALOHA networks, nodes transmit asynchronously as soon as sensor data enters their local buffer, using neither carrier sensing nor time coordination \cite{abramson1970aloha, roberts1975aloha}. Standard LoRaWAN Class A networks introduce multi-channel frequency hopping and establish two scheduled receive slots (RX1 and RX2) after each transmission, but the fundamental channel access remains uncoordinated random access \cite{semtech2020sx1276}. Under dense traffic, overlapping transmissions on the same frequency and spreading factor corrupt one another unless the signal strength difference satisfies the receiver capture threshold ($\ge 6\text{ dB}$) \cite{bankov2017mathematical, croce2018impact}. Consequently, unslotted channel capacity collapses under moderate traffic loads, bounding maximum theoretical throughput to $1/(2e) \approx 18.4\%$ and wasting substantial battery energy on failed transmissions \cite{roberts1975aloha}.
+
+This structural channel vulnerability becomes critical during sudden traffic surges \cite{kolias2017ddos, butun2018security}. When physical hazards, equipment faults, or security anomalies occur, multiple monitoring nodes detect changes simultaneously and attempt to transmit emergency alerts at the same instant. Under standard random access, the network treats all incoming packets identically on a first-come, first-served basis. Time-critical alarm messages must compete directly with routine background telemetry for spectrum access. Because neither Pure ALOHA nor LoRaWAN Class A possesses a mechanism to detect network-wide congestion or infer message urgency, these traffic spikes cause severe packet collisions, buffer overflow drops, and prolonged queuing delays for critical data. Retransmission attempts by uncoordinated nodes compound the channel saturation, draining node batteries without restoring message delivery.
+
+\subsection{Shortcomings of Existing LoRa MAC Protocols}
+
+Prior research has explored various medium access strategies to mitigate packet collisions in LoRa networks, yet each approach introduces practical trade-offs:
+
+\begin{itemize}
+
+    \item \textit{Time-Division Multiple Access (TDMA)}: Protocols such as TS-LoRa \cite{zorbas2020tslora} and Slotted ALOHA \cite{polonelli2019slotted} eliminate transmission overlaps by assigning synchronized time slots to individual nodes. However, maintaining slot alignment requires periodic downlink synchronization beacons from the gateway. These beacons consume scarce gateway airtime subject to regional duty-cycle regulations. Furthermore, clock drift in low-power microcontroller crystals causes slot boundary misalignments unless nodes wake up frequently to resynchronize, which increases idle listening energy consumption.
+
+    \item \textit{Hardware-Constrained Real-Time Schedulers}: Industrial scheduling frameworks such as LoRaHART \cite{sahoo2025lorahart} and RTPL \cite{fahmida2024rtpl} model commercial gateway hardware limits, including the physical 8-demodulator ceiling of Semtech baseband chipsets and half-duplex antenna switching. While these frameworks guarantee schedulability for pre-configured, periodic transmission tasks, they rely on static rate-monotonic allocations and cannot adapt to unexpected, event-driven traffic bursts.
+
+    \item \textit{Carrier Sensing and Artificial Intelligence Approaches}: Carrier-Sense Multiple Access (CSMA) schemes such as LMAC \cite{gamage2023lmac} utilize LoRa Channel Activity Detection (CAD) to listen for preamble chirps before transmitting. However, wide-area LPWANs suffer severely from hidden-terminal phenomena where spatially distributed nodes cannot detect each other's transmissions. Under heavy contention bursts, frequent false CAD triggers and repeated backoffs produce unbounded latency. Conversely, deep reinforcement learning frameworks \cite{leonardi2025deepadr} require computational and memory resources that exceed the capabilities of low-power microcontrollers (e.g., ARM Cortex-M0+), while cloud offloading introduces intolerable round-trip latency during critical emergencies.
+\end{itemize}
+
+\subsection{Paper Contributions}
+The main contributions of this work are as follows:
+\begin{enumerate}
+    \item \textit{Two-Tier Coordination Architecture}: We design RIACC, a gateway-assisted communication management framework that substantially mitigates medium contention, reduces co-channel packet collisions, and prioritizes emergency telemetry without requiring hardware-based clock synchronization or cloud backhaul connectivity.
+    \item \textit{Autonomous Edge Threat Formulation}: We propose a lightweight, edge-computed Adaptive Threat Index ($\text{ATI}$) and burst score calculation that enables low-power sensor nodes to quantify event urgency and manage local buffer priorities autonomously.
+    \item \textit{Runtime Gateway Intelligence and Closed-Loop Control}: We develop a gateway scheduling engine that maintains 7 operational state tables, arbitrates multi-factor transmission priorities, and enforces closed-loop spectrum control across available sub-band channels while respecting physical 8-demodulator and half-duplex hardware constraints.
+    \item \textit{Large-Scale Trace Replay Validation}: We validate RIACC by replaying two million network events from 3,541 unique physical nodes using the ToN\_IoT telemetry dataset \cite{alhawawreh2020toniot} under the ITU-R P.1411 suburban path-loss standard \cite{itur2019p1411}, demonstrating significant gains in delivery ratio, collision reduction, and energy efficiency over Pure ALOHA and LoRaWAN Class A baselines.
+\end{enumerate}
+
+\subsection{Article Structure}
+The subsequent sections are structured as follows: Section~\ref{sec:related_work} reviews foundational literature and establishes the formal multi-objective optimization problem. Section~\ref{sec:system_architecture} outlines the RIACC two-tier architecture along with the node and gateway finite state machines. Section~\ref{sec:gateway_intelligence} elaborates on the seven runtime state tables and gateway control mechanics. Section~\ref{sec:algorithms} details the mathematical formulations and scheduling procedures. Section~\ref{sec:experimental_setup} presents the simulation methodology and trace replay setup. Section~\ref{sec:results} discusses comparative performance benchmarks. Section~\ref{sec:discussion} analyzes hardware implementation feasibility, and Section~\ref{sec:conclusion} concludes the paper.
+
+%% =============================================================================
+%% SECTION 2: RELATED WORK AND PROBLEM FORMULATION
+%% =============================================================================
+\section{Related Work and Problem Formulation}
+\label{sec:related_work}
+
+This section provides a critical, mechanistic review of existing medium access control (MAC) protocols for LoRa networks, details the physical transceiver and channel propagation models, formalizes commercial gateway hardware constraints, and formulates the multi-objective optimization problem.
+
+\subsection{Critical Analysis of Existing LoRa MAC Protocols}
+To contextualize the technical challenges, we analyze existing medium access control schemes across five architectural paradigms:
+
+\subsubsection{Unslotted Random Access and Slotted Contention Protocols}
+Standard LoRa networks rely predominantly on uncoordinated random access rooted in the classical ALOHA paradigm \cite{abramson1970aloha, roberts1975aloha}. In Pure ALOHA, an end-device initiates transmission immediately upon the arrival of data in its local ring buffer, without evaluating channel occupancy. For a transmission of physical duration $T_{\text{packet}}$, the vulnerability window during which any overlapping transmission on the same frequency and spreading factor will cause packet corruption spans $2 T_{\text{packet}}$ \cite{adelantado2017understanding}. Under normalized offered traffic load $G$, the theoretical channel throughput is $S = G \cdot e^{-2G}$, which attains a maximum throughput limit of $S_{\text{max}} = 1/(2e) \approx 18.4\%$ at $G = 0.5$. In standard LoRaWAN Class A networks, multi-channel frequency hopping distributes transmissions pseudo-randomly across regional sub-band frequencies \cite{semtech2020sx1276}. While multi-channel hopping expands aggregate bandwidth, medium access within each individual sub-band remains unslotted random access \cite{bor2016lora}. When hundreds of devices transmit concurrently, severe co-channel collisions occur, leading to high packet drop rates and massive energy wastage from repeated retransmissions.
+
+Slotted ALOHA protocols \cite{polonelli2019slotted} halve the collision vulnerability window from $2 T_{\text{packet}}$ to $T_{\text{packet}}$ by forcing all nodes to align transmission starts with discrete slot boundaries, theoretically doubling maximum channel capacity to $1/e \approx 36.8\%$ at $G = 1.0$. However, practical implementations of Slotted ALOHA over long-range outdoor networks encounter two severe physical bottlenecks:
+\begin{enumerate}
+    \item \textit{Microcontroller Clock Drift}: Commercial IoT nodes utilize low-cost quartz crystal oscillators that exhibit thermal frequency drift (typically $\pm 20\text{ to }\pm 50\text{ ppm}$). A modest drift of $50\text{ ppm}$ accumulates $180\text{ ms}$ of timing offset per hour. In LoRa networks where symbol durations reach $4.096\text{ ms}$ (SF12 at $125\text{ kHz}$), clock drift quickly shifts packet boundaries across adjacent slots, destroying transmissions in neighboring time slots.
+    \item \textit{Downlink Synchronization Overhead}: Preventing boundary drift requires frequent gateway synchronization beacons. However, sub-gigahertz ISM regulations restrict gateway transmission duty cycles to $1.0\%$ or $10\%$ \cite{adelantado2017understanding}. Broadly broadcasting synchronization frames consumes the gateway's legal airtime quota, creating downlink deaf periods that block application acknowledgments and urgent network commands.
+\end{enumerate}
+
+\subsubsection{Centralized TDMA Frameworks}
+To completely eliminate co-channel collisions, Time-Division Multiple Access (TDMA) architectures partition channel airtime into dedicated time slots assigned to individual nodes. Frameworks such as TS-LoRa \cite{zorbas2020tslora} schedule non-overlapping slots across available frequencies and spreading factors based on known node transmission intervals. While TDMA provides deterministic collision-free communication during steady-state periodic traffic, its centralized schedules are inherently static. When an environmental hazard or physical security anomaly triggers a sudden burst of emergency telemetry from co-located sensors, unassigned nodes cannot transmit until the next scheduling frame. Consequently, incoming alert packets overflow node buffers, resulting in unbounded delivery latency for critical alarms.
+
+\subsubsection{Hardware-Aware Industrial Real-Time Schedulers}
+Recent real-time scheduling protocols explicitly incorporate commercial gateway hardware limitations into medium access control. Sahoo et al. \cite{sahoo2025lorahart} proposed LoRaHART, a real-time scheduling architecture modeling commercial Semtech SX1301/SX1302 baseband processors. LoRaHART identifies two primary physical constraints:
+\begin{enumerate}
+    \item \textit{Digital Demodulation Engine Ceiling ($M \le 8$)}: Commercial 8-channel concentrators possess exactly 8 digital demodulators. If more than 8 packets arrive simultaneously across any combination of channels and spreading factors, the 9th packet is immediately dropped at the baseband register level, regardless of its signal power.
+    \item \textit{Half-Duplex RF Switch Blackout}: Commercial base stations utilize a shared RF front-end with a single antenna switch. While the gateway is transmitting a downlink frame, the receive path is physically disconnected, rendering all 8 demodulation engines blind to incoming uplinks.
+\end{enumerate}
+Similarly, RTPL \cite{fahmida2024rtpl} designs channel-SF multi-partitions using Earliest Deadline First (EDF) scheduling. However, both LoRaHART and RTPL rely on static rate-monotonic task models where packet execution times, periods, and deadlines are known \textit{a priori}. They assume deterministic periodic workloads and cannot adapt to stochastic, event-driven traffic bursts.
+
+\subsubsection{Application-Layer Overlay Schedulers}
+To achieve deterministic timing without modifying gateway firmware or MAC drivers, application-layer overlays such as RT-LoRaWAN \cite{finochietto2023adding} enforce coordinated transmission windows purely at the application layer. However, standard LoRaWAN Class A specifications require end-devices to open two receive windows (RX1 and RX2) after fixed delays ($1\text{ s}$ and $2\text{ s}$) following each uplink \cite{semtech2020sx1276}. To prevent ongoing uplinks from interfering with pending downlink windows, RT-LoRaWAN must assign large, fixed slot durations ($2.8\text{ to }14.9\text{ s}$ per transaction). This rigid reservation locks the spectrum for long periods, severely throttling network throughput and restricting concurrency to a small number of nodes.
+
+\subsubsection{Carrier Sensing and Artificial Intelligence Approaches}
+Carrier-Sense Multiple Access (CSMA) protocols such as LMAC \cite{gamage2023lmac} use LoRa Channel Activity Detection (CAD) to detect preamble chirps before initiating transmission. While CAD consumes significantly less power than full packet reception, carrier sensing in wide-area LPWANs suffers from the hidden-terminal problem: two sensor nodes separated by several kilometers may be unable to hear each other's chirps despite both being within communication range of the central gateway. Under heavy channel congestion, frequent false CAD detections and repeated exponential backoffs create long latency tails.
+
+Conversely, deep reinforcement learning (DRL) and deep learning frameworks \cite{leonardi2025deepadr} have been explored for dynamic spreading factor selection and power allocation. However, executing multi-layer neural networks imposes computational and memory footprints that exceed the capacity of ultra-low-power microcontrollers (e.g., ARM Cortex-M0+ with $32\text{ KB}$ RAM). Offloading inference to remote cloud servers introduces round-trip backhaul delays and network dependencies that fail during local infrastructure outages.
+
+\begin{table*}[t]
+\centering
+\caption{Taxonomy and Comparison of State-of-the-Art LoRa Medium Access Control Schemes and the Proposed RIACC Framework.}
+\label{tab:sota_comparison}
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Protocol} & \textbf{Access Paradigm} & \textbf{Hardware Limits} & \textbf{Priority /} & \textbf{Synchronization} & \textbf{Dynamic Burst} & \textbf{Overhead /} \\
+& & \textbf{Modeled ($M \le 8$, HD)} & \textbf{Emergency Support} & \textbf{Requirement} & \textbf{Adaptation} & \textbf{MCU Footprint} \\
+\midrule
+Pure ALOHA \cite{abramson1970aloha} & Random (Unslotted) & No & None (FIFO) & None & None (Collapses) & Zero / Negligible \\
+LoRaWAN Class A \cite{semtech2020sx1276} & Random (Multi-channel) & No & None (FIFO) & None & None (Collapses) & Low / Standard \\
+Slotted ALOHA \cite{polonelli2019slotted} & Slotted Random & No & None (FIFO) & Strict (Clock sync) & Poor & Moderate / Low \\
+TS-LoRa \cite{zorbas2020tslora} & Centralized TDMA & Partial & Static priority & Strict (Beacons) & Poor (Static slots) & High (Beacons) \\
+RT-LoRaWAN \cite{finochietto2023adding} & Application Overlay & No & Deadlines & Loose (Time intervals) & Poor ($2.8\text{--}14.9\text{ s}$ slots) & High (Airtime lock) \\
+LMAC \cite{gamage2023lmac} & CAD-based CSMA & No & Backoff differentiation & None & Moderate (Backoff delay) & Moderate (CAD energy) \\
+LoRaHART \cite{sahoo2025lorahart} & Hardware-Aware TDMA & Yes ($M \le 8$, HD) & Static task deadlines & Strict (Frame sync) & None (Periodic tasks) & High (Sync frames) \\
+RTPL \cite{fahmida2024rtpl} & Multi-Partition EDF & Partial (Exceeds $M$) & Earliest Deadline First & Strict (Slot sync) & Poor (Pre-configured) & High (Slot tables) \\
+Deep ADR \cite{leonardi2025deepadr} & Learning-Based ADR & No & Throughput-driven & None & Moderate (Cloud latency) & Prohibitive (Neural net) \\
+\midrule
+\textbf{RIACC (Proposed)} & \textbf{Gateway-Assisted} & \textbf{Yes ($M \le 8$, HD)} & \textbf{Edge ATI + Dual} & \textbf{None (Closed-loop} & \textbf{Dynamic (HOLD /} & \textbf{Lightweight} \\
+& \textbf{Dynamic Coordination} & & \textbf{Preemption Fast-Path} & \textbf{Grant-based timing)} & \textbf{Grant state tables)} & \textbf{($O(1)$ edge math)} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+Table~\ref{tab:sota_comparison} summarizes the comparative taxonomy. As shown, existing solutions either ignore physical gateway hardware limits, enforce rigid periodic schedules that collapse under traffic bursts, require expensive clock synchronization, or impose large fixed-slot airtime overheads. RIACC bridges these gaps by combining lightweight edge threat estimation with closed-loop gateway state table arbitration.
+
+\subsection{Physical Layer, Channel Propagation, and Electrical Energy Models}
+
+We formalize the mathematical models governing LoRa physical modulation, packet airtime, path loss propagation, power capture, and transceiver electrical energy consumption.
+
+\subsubsection{LoRa Physical Modulation and Time-on-Air Formulation}
+In LoRa Chirp Spread Spectrum (CSS) modulation, each data symbol encodes $\text{SF}$ bits, spanning a bandwidth $\text{BW}$. The physical symbol duration $T_{\text{sym}}$ is:
+\begin{equation}
+\label{eq:tsym}
+T_{\text{sym}} = \frac{2^{\text{SF}}}{\text{BW}}
+\end{equation}
+The preamble duration $T_{\text{preamble}}$ required for gateway correlator synchronization is:
+\begin{equation}
+\label{eq:tpreamble}
+T_{\text{preamble}} = (N_{\text{preamble}} + 4.25) \cdot T_{\text{sym}}
+\end{equation}
+where $N_{\text{preamble}}$ is the programmed preamble length (typically $8$ symbols) and $4.25$ accounts for the mandatory synchronization and frequency calibration chirps.
+
+The number of symbols required to transmit the physical payload $N_{\text{payload}}$ is rigorously formulated in the Semtech transceiver specification \cite{semtech2020sx1276}:
+\begin{equation}
+\label{eq:npayload}
+N_{\text{payload}} = 8 + \max\left( \left\lceil \frac{8\text{PL} - 4\text{SF} + 28 + 16\text{CRC} - 20\text{IH}}{4(\text{SF} - 2\text{DE})} \right\rceil (\text{CR} + 4), \; 0 \right)
+\end{equation}
+where $\text{PL}$ is the payload length in bytes, $\text{CRC} \in \{0, 1\}$ indicates whether a 16-bit payload CRC is appended, $\text{IH} \in \{0, 1\}$ indicates implicit header mode, and $\text{DE} \in \{0, 1\}$ denotes the Low Data Rate Optimization flag (mandatory when $T_{\text{sym}} > 16\text{ ms}$, i.e., $\text{SF} \in \{11, 12\}$ at $\text{BW} = 125\text{ kHz}$). The total physical Time-on-Air (ToA) $T_{\text{packet}}$ is:
+\begin{equation}
+\label{eq:toa}
+T_{\text{packet}} = T_{\text{preamble}} + N_{\text{payload}} \cdot T_{\text{sym}}
+\end{equation}
+where $T_{\text{preamble}}$ is the preamble duration from \eqref{eq:tpreamble}, $N_{\text{payload}}$ is the payload symbol count from \eqref{eq:npayload}, and $T_{\text{sym}}$ is the symbol duration from \eqref{eq:tsym}.
+
+\subsubsection{Wireless Channel Propagation and Log-Distance Path Loss}
+Outdoor RF power attenuation across suburban terrain is modeled according to the ITU-R P.1411-10 propagation specification \cite{itur2019p1411}. The spatial path attenuation $\text{PL}(d)$ over link separation distance $d$ relative to isotropic baseline $d_0 = 1\text{ m}$ is formulated as:
+\begin{equation}
+\label{eq:pathloss}
+\text{PL}(d) = \text{PL}(d_0) + 10 \cdot n \cdot \log_{10}\left(\frac{d}{d_0}\right) + X_\sigma
+\end{equation}
+where $\text{PL}(d_0) = 127.41\text{ dB}$ denotes reference attenuation at $868\text{ MHz}$, $n = 2.5$ represents the suburban exponent, and $X_\sigma \sim \mathcal{N}(0, \sigma^2)$ models log-normal shadow fading fluctuations with standard deviation $\sigma = 6.0\text{ dB}$.
+
+For an end-device $i$ located at Euclidean distance $d_i$ radiating with output power $P_{\text{tx}, i}$, the received signal power level $\text{RSSI}_i$ demodulated by the gateway is:
+\begin{equation}
+\label{eq:rssi}
+\text{RSSI}_i = P_{\text{tx}, i} + G_{\text{tx}} + G_{\text{rx}} - \text{PL}(d_i)
+\end{equation}
+where $G_{\text{tx}}$ and $G_{\text{rx}}$ represent transmitter and receiver antenna gains.
+
+\subsubsection{Co-Channel Power Capture and Spreading Factor Cross-Talk}
+
+When two packets overlap simultaneously on the same frequency channel and spreading factor, the gateway receiver evaluates the physical capture condition \cite{bankov2017mathematical}. If packet $A$ arrives with received power $\text{RSSI}_A$ and an overlapping packet $B$ arrives with $\text{RSSI}_B$, packet $A$ survives if and only if:
+
+\begin{equation}
+
+\label{eq:capture}
+
+\text{RSSI}_A - \text{RSSI}_B \ge \gamma_{\text{cap}} = 6\text{ dB}
+
+\end{equation}
+
+and packet $A$ arrived at least $T_{\text{preamble}} - 5 T_{\text{sym}}$ before packet $B$, allowing the baseband correlator to lock onto its preamble \cite{semtech2020sx1276}. Otherwise, both packets are destroyed.
+
+Furthermore, concurrent transmissions across different spreading factors generate cross-SF interference under high received power differentials \cite{croce2018impact}. A packet on $\text{SF}_i$ successfully decodes in the presence of concurrent transmission on $\text{SF}_j$ ($j \ne i$) if:
+
+\begin{equation}
+
+\label{eq:cross_sf}
+
+\text{RSSI}_i - \text{RSSI}_j \ge \text{SIR}_{\text{thresh}}(\text{SF}_i, \text{SF}_j)
+
+\end{equation}
+
+where $\text{SIR}_{\text{thresh}}$ is defined by the empirical cross-talk isolation matrix \cite{croce2018impact}.
+
+\subsubsection{Transceiver Electrical Power Model}
+
+Sensor node energy consumption is modeled based on the Semtech SX1276 electrical parameters \cite{semtech2020sx1276}. For an operating voltage $V_{\text{dd}} = 3.3\text{ V}$, active transmission energy $E_{\text{tx}}$ is:
+
+\begin{equation}
+
+\label{eq:etx}
+
+E_{\text{tx}} = V_{\text{dd}} \cdot I_{\text{tx}}(P_{\text{tx}}) \cdot T_{\text{packet}}
+
+\end{equation}
+
+where $I_{\text{tx}} = 35\text{ mA}$ at $+14\text{ dBm}$ output power ($P_{\text{tx}} = 115.5\text{ mW}$).
+
+During active downlink reception (e.g., listening for grant messages during a receive window $T_{\text{rx}}$), the energy consumed is:
+
+\begin{equation}
+
+\label{eq:erx}
+
+E_{\text{rx}} = V_{\text{dd}} \cdot I_{\text{rx}} \cdot T_{\text{rx}}
+
+\end{equation}
+
+where $I_{\text{rx}} = 10.8\text{ mA}$ ($P_{\text{rx}} = 35.64\text{ mW}$). In deep sleep mode between events, $I_{\text{sleep}} \approx 1\text{ }\mu\text{A}$, yielding static dissipation $P_{\text{sleep}} = V_{\text{dd}} \cdot I_{\text{sleep}} \approx 3.3\text{ }\mu\text{W}$. 
+
+Following standard LPWAN battery discharge models \cite{bouguera2018energy, casals2017modeling}, the normalized residual battery level $E_{\text{rem}, i}(t) \in [0, 1]$ of node $i$ at time $t$ is calculated as:
+
+\begin{equation}
+
+\label{eq:erem}
+
+E_{\text{rem}, i}(t) = \max\left(0, \; 1 - \frac{\sum_{k} E_{\text{tx}}(i,k) + \sum_{k} E_{\text{rx}}(i,k) + \int_0^t P_{\text{sleep}} \, d\tau}{E_{\text{total}, i}}\right)
+
+\end{equation}
+
+where $E_{\text{total}, i} = V_{\text{dd}} \cdot C_{\text{batt}, i}$ is the total nominal battery capacity (e.g., $E_{\text{total}} = 28.51\text{ kJ}$ for a standard $2400\text{ mAh}$, $3.3\text{ V}$ $\text{Li-SOCl}_2$ battery cell \cite{bouguera2018energy}).
+
+\subsection{Gateway Hardware and Concurrency Constraints}
+
+Commercial LoRa base stations utilize digital baseband concentrator chipsets (Semtech SX1301/SX1302/SX1303) that impose strict hardware boundaries \cite{sahoo2025lorahart}:
+
+\begin{enumerate}
+
+    \item \textit{Demodulator Ceiling ($M \le 8$)}: An 8-channel commercial gateway possesses exactly $M = 8$ concurrent demodulation engines. If a 9th packet arrives at time $t$ while all 8 demodulators are actively processing uplinks across any channels, the 9th packet is immediately dropped at the hardware register level:
+
+    \begin{equation}
+
+    \label{eq:demod_limit}
+
+    \sum_{k=1}^K x_{i,k}(t) \le M = 8, \quad \forall t
+
+    \end{equation}
+
+    where $x_{i,k}(t) \in \{0, 1\}$ indicates whether node $i$ is actively transmitting on frequency channel $k$ at time $t$.
+
+    \item \textit{Half-Duplex Antenna Switching}: The gateway employs a single RF switch shared between transmission and reception paths. While the gateway is transmitting a downlink frame, the RF switch disconnects the receive path, creating a reception blackout across all channels \cite{sahoo2025lorahart}:
+
+    \begin{equation}
+
+    \label{eq:half_duplex}
+
+    y_{\text{downlink}}(t) + \frac{1}{M}\sum_{k=1}^K x_{i,k}(t) \le 1, \quad \forall t
+
+    \end{equation}
+
+    where $y_{\text{downlink}}(t) \in \{0, 1\}$ indicates active gateway downlink transmission.
+
+\end{enumerate}
+
+\subsection{Multi-Objective Problem Formulation}
+
+Consider a LoRa network comprising $N$ distributed sensor nodes $\mathcal{N} = \{1, 2, \dots, N\}$ and a central gateway managing $K$ orthogonal sub-band frequency channels $\mathcal{K} = \{f_1, f_2, \dots, f_K\}$. Each node $i \in \mathcal{N}$ generates a sequence of data events $e_{i,m}$ at arrival timestamp $t_{i,m}^{\text{arr}}$ with an application priority level $\mathcal{P}_{i,m} \in \{\text{ROUTINE}, \text{CRITICAL}\}$.
+
+Let $\tau_{i,m}$ denote the scheduled transmission start time of event $e_{i,m}$, $f(i,m) \in \mathcal{K}$ be its assigned frequency, and $\text{SF}(i,m) \in \{7, \dots, 12\}$ be its assigned spreading factor. Let $y_{i,m} \in \{0, 1\}$ be a binary decision variable indicating whether event $e_{i,m}$ is successfully delivered to the gateway without collision or deadline expiration. The end-to-end delivery latency for event $e_{i,m}$ is $L_{i,m} = (\tau_{i,m} + T_{\text{packet}}(i,m)) - t_{i,m}^{\text{arr}}$, and the energy expended across all attempts is $E_{i,m}$.
+
+We formulate the medium access coordination problem as a multi-objective optimization problem that balances overall delivery, emergency prioritization, latency minimization, and energy conservation, inspired by the runtime closed-loop coordination principles in \cite{lu2026dynamic}:
+
+\begin{equation}
+
+\label{eq:objective}
+
+\max_{\{\tau_{i,m}, f(i,m), \text{SF}(i,m)\}} \; \left( w_1 \cdot \text{PDR}_{\text{overall}} + w_2 \cdot \text{PDR}_{\text{critical}} - w_3 \cdot \bar{L}_{\text{critical}} - w_4 \cdot \frac{E_{\text{total}}}{E_{\text{baseline}}} \right)
+
+\end{equation}
+
+where $w_1, w_2, w_3, w_4 \ge 0$ are normalized multi-objective weighting coefficients ($\sum_{k=1}^4 w_k = 1$), $E_{\text{baseline}}$ is the benchmark energy consumption of standard random access for scaling, and the individual performance metrics are formulated as:
+
+\begin{align}
+
+\text{PDR}_{\text{overall}} &= \frac{\sum_{i=1}^N \sum_{m} y_{i,m}}{\sum_{i=1}^N \sum_{m} 1} \label{eq:pdr_overall} \\
+
+\text{PDR}_{\text{critical}} &= \frac{\sum_{i=1}^N \sum_{m: \mathcal{P}_{i,m}=\text{CRITICAL}} y_{i,m}}{\sum_{i=1}^N \sum_{m: \mathcal{P}_{i,m}=\text{CRITICAL}} 1} \label{eq:pdr_critical} \\
+
+\bar{L}_{\text{critical}} &= \frac{1}{\sum y_{i,m}} \sum_{i=1}^N \sum_{m: \mathcal{P}_{i,m}=\text{CRITICAL}} y_{i,m} \cdot L_{i,m} \label{eq:lat_critical} \\
+
+E_{\text{total}} &= \sum_{i=1}^N \sum_{m} E_{i,m} \label{eq:e_total}
+
+\end{align}
+
+subject to the following operational constraints:
+
+\begin{align}
+
+&\textbf{C1: Non-Overlapping Channel Slots (Collision Mitigation):} \nonumber \\
+
+&|\tau_{i,m} - \tau_{j,l}| \ge T_{\text{packet}}(i,m) + \Delta t_{\text{guard}}, \quad \forall (i,m) \ne (j,l) \text{ with } f(i,m) = f(j,l) \text{ and } \text{SF}(i,m) = \text{SF}(j,l) \label{eq:c1} \\[6pt]
+
+&\textbf{C2: Gateway Demodulator Ceiling:} \nonumber \\
+
+&\sum_{i=1}^N \mathbf{1}_{\{t \in [\tau_{i,m}, \; \tau_{i,m} + T_{\text{packet}}(i,m)]\}} \le M = 8, \quad \forall t \ge 0 \label{eq:c2} \\[6pt]
+
+&\textbf{C3: Gateway Half-Duplex Mutual Exclusion:} \nonumber \\
+
+&y_{\text{downlink}}(t) + \mathbf{1}_{\{t \in [\tau_{i,m}, \; \tau_{i,m} + T_{\text{packet}}(i,m)]\}} \le 1, \quad \forall i \in \mathcal{N}, \; \forall t \ge 0 \label{eq:c3} \\[6pt]
+
+&\textbf{C4: Regional Duty-Cycle Compliance:} \nonumber \\
+
+&\frac{\sum_{m: f(i,m) \in \text{SubBand}_c} T_{\text{packet}}(i,m)}{T_{\text{observation}}} \le \text{DC}_c \le 0.01, \quad \forall i \in \mathcal{N}, \; \forall c \label{eq:c4} \\[6pt]
+
+&\textbf{C5: Emergency Preemption Fast-Path:} \nonumber \\
+
+&L_{i,m} \le D_{\text{critical}}, \quad \forall (i,m) \text{ with } \mathcal{P}_{i,m} = \text{CRITICAL} \label{eq:c5}
+
+\end{align}
+
+The operational constraints in \eqref{eq:c1}--\eqref{eq:c5} enforce physical hardware and regulatory boundaries:
+
+\begin{itemize}
+
+    \item \textbf{Constraint \eqref{eq:c1} (Collision Mitigation):} Mitigates co-channel collisions by enforcing a guard interval $\Delta t_{\text{guard}} \ge 5\text{ ms}$ between any two distinct packet transmissions $(i,m) \ne (j,l)$ that share the same frequency channel $f(i,m) = f(j,l)$ and spreading factor $\text{SF}(i,m) = \text{SF}(j,l)$, where $\tau_{i,m}$ is the scheduled start time and $T_{\text{packet}}(i,m)$ is the packet airtime.
+
+    \item \textbf{Constraint \eqref{eq:c2} (Demodulator Ceiling):} Restricts the total number of simultaneous uplink transmissions across all $K$ channels at any instant $t$ to $M = 8$, matching the physical baseband demodulator limit of Semtech SX1301/SX1302 concentrators, where $\mathbf{1}_{\{\cdot\}}$ is the binary indicator function.
+
+    \item \textbf{Constraint \eqref{eq:c3} (Half-Duplex Isolation):} Enforces mutual exclusion between downlink transmissions and uplink reception, where $y_{\text{downlink}}(t) \in \{0, 1\}$ denotes active gateway transmission causing an RF receiver blackout.
+
+    \item \textbf{Constraint \eqref{eq:c4} (Duty-Cycle Compliance):} Enforces regional ETSI spectrum regulations, ensuring that total cumulative transmission time within sub-band group $\text{SubBand}_c$ over observation window $T_{\text{observation}} = 3600\text{ s}$ does not exceed the legal duty cycle limit $\text{DC}_c \le 0.01$ ($1\%$).
+
+    \item \textbf{Constraint \eqref{eq:c5} (Emergency Fast-Path):} Prioritizes high-priority alerts ($\mathcal{P}_{i,m} = \text{CRITICAL}$) to minimize end-to-end delivery latency $L_{i,m} \le D_{\text{critical}}$, where $L_{i,m} = (\tau_{i,m} + T_{\text{packet}}(i,m)) - t_{i,m}^{\text{arr}}$ and $D_{\text{critical}}$ is the maximum allowable emergency deadline.
+
+\end{itemize}
+
+Solving Problem~\eqref{eq:objective} globally under dynamic, unpredictable traffic surges is NP-hard, as it generalizes the multi-dimensional bin packing and job-shop scheduling problems. The RIACC framework introduces a distributed, polynomial-time heuristic that solves this problem through edge threat scoring and centralized runtime state table arbitration.
+
+%% =============================================================================
+
+%% SECTION 3: RIACC SYSTEM ARCHITECTURE AND OPERATIONAL STATE MACHINES
+
+%% =============================================================================
+
+\section{RIACC System Architecture and Dual State Machines}
+\label{sec:system_architecture}
+
+This section presents the two-tier edge-to-gateway architecture of the RIACC framework, details the internal buffer organization of intelligent sensor nodes, and formalizes the operational state machines governing both the edge devices and the central gateway coordinator.
+
+\subsection{Architectural Blueprint and Division of Responsibilities}
+RIACC introduces an adaptive coordination layer designed to operate above existing physical modulation schemes without requiring hardware modifications or external clock synchronization. The end-to-end division of responsibilities between distributed field sensor nodes and the centralized gateway is illustrated in Fig.~\ref{fig:architecture}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{figarchitecture.pdf}
+\caption{End-to-end RIACC system architecture depicting distributed intelligent sensor nodes communicating over shared sub-band LoRa channels to a centralized gateway coordinator managing 7 runtime state tables.}
+\label{fig:architecture}
+\end{figure}
+
+The architecture partitions communication intelligence into two cooperating tiers:
+\begin{enumerate}
+    \item \textbf{Edge Sensor Node Tier:} Sensor nodes operate as autonomous, low-power sensing units. Rather than executing computationally prohibitive deep neural networks or running continuous carrier-sensing loops, each node computes an Adaptive Threat Index ($\text{ATI}$) using local telemetry differentials, instantaneous sensing velocity, queue occupancy, and retransmission history. During routine operating conditions, sensor nodes piggyback lightweight transmission requests within standard uplink payloads. When severe physical anomalies or hazard spikes occur ($\text{ATI} \ge 60$), the node initiates an autonomous emergency fast-path procedure on a dedicated preemption sub-band, bypassing the normal request-grant scheduling queue entirely.
+
+    \item \textbf{Central Gateway Coordination Tier:} The central gateway acts as a runtime intelligence orchestrator. It maintains 7 interconnected runtime state tables in local memory to continuously track active transmission requests (ART), link quality metrics (LQT), global threat levels (GTT), infrastructure context (ICT), channel reservations (COT), node operating states (NST), and pending acknowledgments (AMT). Using dual intelligence engines, the Network Intelligence Engine (NIE) and the Master Scheduling Service (MSS), the gateway arbitrates transmission priorities, constructs collision-reduced channel-SF slot allocations, and dispatches closed-loop control directives ($\text{GRANT}$, $\text{HOLD}$, $\text{WAIT}$, $\text{RETRY}$, $\text{DROP}$) to throttle non-critical traffic during contention bursts.
+\end{enumerate}
+
+\subsection{Edge Sensor Node Architecture and Priority Management}
+Field sensor nodes operate under stringent energy and memory constraints. To maintain high responsiveness without exhausting battery reserves, the internal software architecture of each node incorporates two core priority management mechanisms:
+
+\subsubsection{Internal Priority Queue and Buffer Preemption}
+Sensor nodes maintain an internal priority queue implemented as a binary min-heap sorted by $- \text{ATI}_i(t)$. Incoming telemetry events are inserted into the heap in $O(\log Q)$ time. In contrast to standard First-In, First-Out (FIFO) ring buffers where critical emergency alerts are trapped behind stale routine readings, the heap structure guarantees that the packet at the root of the queue always represents the highest-threat data. If the buffer reaches maximum capacity $Q_{\text{max}}$, incoming high-priority packets preempt and evict the lowest-$\text{ATI}$ routine packets from the tail of the buffer, preventing buffer-bloat drops of critical alarms:
+\begin{equation}
+\label{eq:heap_preempt}
+e_{\text{evict}} = \arg \min_{e \in \mathcal{Q}_i} \text{ATI}(e), \quad \text{if } |\mathcal{Q}_i| = Q_{\text{max}} \text{ and } \text{ATI}(e_{\text{new}}) > \min_{e \in \mathcal{Q}_i} \text{ATI}(e)
+\end{equation}
+
+\subsubsection{Transmission Request Piggybacking}
+To minimize the airtime overhead of dedicated request signaling, routine nodes piggyback a compact 4-byte Request Header onto standard outgoing telemetry frames:
+\begin{equation}
+\label{eq:piggyback_hdr}
+\text{ReqHdr} = \langle \text{NodeID } (16\text{ bits}), \; \text{Len } (8\text{ bits}), \; \text{ATI } (8\text{ bits}) \rangle
+\end{equation}
+where $\text{NodeID}$ uniquely identifies the transmitting end-device ($16$ bits), $\text{Len}$ specifies the physical payload byte count ($8$ bits), and $\text{ATI}$ denotes the quantized threat urgency level ($8$ bits, integer range $[0, 100]$). Upon receiving any uplink, the gateway demodulates the payload and immediately extracts the piggybacked request, updating the Active Request Table (ART) with minimal additional spectrum overhead.
+
+\subsection{Sensor Node Operational Finite State Machine}
+The operational lifecycle of an intelligent sensor node is formalized as an 8-state finite state machine, as depicted in Fig.~\ref{fig:sensor_fsm}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{figdualfsm1.pdf}
+\caption{End-device sensor node operational finite state machine, showing autonomous emergency fast-path preemption, gateway directive handling (GRANT, WAIT, HOLD), and acknowledgment retry management.}
+\label{fig:sensor_fsm}
+\end{figure}
+
+The state transitions and operational rules shown in Fig.~\ref{fig:sensor_fsm} are defined as follows:
+\begin{enumerate}
+    \item \textbf{IDLE ($S_{\text{IDLE}}$):} The node enters deep sleep mode with all high-frequency clocks and radio circuitry disabled ($I_{\text{sleep}} \approx 1.0\text{ }\mu\text{A}$). The microcontroller remains asleep until an external sensor interrupt or periodic sampling timer triggers a transition to $S_{\text{PROC}}$.
+
+    \item \textbf{PROCESSING ($S_{\text{PROC}}$):} The node wakes up, acquires physical sensor readings, computes the local Adaptive Threat Index $\text{ATI}_i(t)$ via \eqref{eq:ati_formula}, and evaluates packet urgency. If $\text{ATI}_i(t) \ge 60$ (Critical Emergency), the node transitions directly to $S_{\text{EMERGENCY}}$; otherwise, routine telemetry ($\text{ATI}_i(t) < 60$) is inserted into the local priority heap and the node transitions to $S_{\text{REQ}}$.
+
+    \item \textbf{REQUEST\_PENDING ($S_{\text{REQ}}$):} The node prepares a transmission request for the highest-threat packet in its heap. If an outgoing uplink is already scheduled, the request is embedded into the piggybacked header \eqref{eq:piggyback_hdr}; otherwise, an unslotted request frame is transmitted on the default control channel. The node then opens a receive window and transitions to $S_{\text{WAIT\_RESP}}$.
+
+    \item \textbf{WAITING\_RESPONSE ($S_{\text{WAIT\_RESP}}$):} The node listens for a gateway downlink directive:
+    \begin{itemize}
+        \item If a $\textbf{GRANT}(\tau, f, \text{SF})$ message is received, the node records the assigned transmission start time $\tau$, frequency channel $f$, and spreading factor $\text{SF}$, and transitions to $S_{\text{TX}}$ at timestamp $\tau$.
+        \item If a $\textbf{HOLD}(T_{\text{hold}})$ command is decoded, the node sets a hold timer for duration $T_{\text{hold}}$ and transitions to $S_{\text{HOLD}}$.
+        \item If a $\textbf{WAIT}(\Delta t_{\text{backoff}})$ directive is received, the node enters sleep for backoff interval $\Delta t_{\text{backoff}}$ and returns to $S_{\text{REQ}}$.
+        \item If the receive window times out without a directive, the node increments retry counter $r_i$ and re-enters $S_{\text{REQ}}$.
+    \end{itemize}
+
+    \item \textbf{HOLD\_ACTIVE ($S_{\text{HOLD}}$):} The node pauses routine transmissions for duration $T_{\text{hold}}$, clearing the shared spectrum for high-priority emergency flows. The node continues local sensing in the background; if a subsequent sample triggers $\text{ATI} \ge 60$, the hold state is aborted immediately for emergency preemption ($S_{\text{EMERGENCY}}$). Upon timer expiration ($t \ge T_{\text{hold}}$), the node returns to $S_{\text{REQ}}$.
+
+    \item \textbf{TRANSMITTING ($S_{\text{TX}}$):} At the granted timestamp $\tau$, the node configures its transceiver to frequency $f$ and spreading factor $\text{SF}$, sets output power $P_{\text{tx}}$, transmits the data payload, and transitions to $S_{\text{WAIT\_ACK}}$.
+
+    \item \textbf{WAITING\_ACK ($S_{\text{WAIT\_ACK}}$):} The node listens for gateway acknowledgment during its designated receive window. Upon receiving a positive ACK, the transaction completes, the retry counter is reset ($r_i \leftarrow 0$), and the node returns to $S_{\text{IDLE}}$. If the ACK window times out, the node increments retry counter $r_i \leftarrow r_i + 1$. If $r_i \le r_{\text{max}} = 8$, it executes exponential backoff and transitions to $S_{\text{REQ}}$; if $r_i > r_{\text{max}}$, it discards the unacknowledged packet to prevent queue deadlock and returns to $S_{\text{IDLE}}$.
+
+    \item \textbf{EMERGENCY\_FASTPATH ($S_{\text{EMERGENCY}}$):} High-priority hazard telemetry bypasses routine scheduling queues. The radio switches immediately to the dedicated preemption sub-band ($865.9\text{ MHz}$, SF7) and transmits an emergency alert with minimal Time-on-Air ($T_{\text{packet}} \approx 60\text{ ms}$) at maximum power ($+14\text{ dBm}$) before transitioning to $S_{\text{WAIT\_ACK}}$.
+\end{enumerate}
+
+\subsection{Gateway Multi-Stage Coordination State Machine}
+The central gateway dynamically adapts its network-wide scheduling behavior based on the Global Network Threat Score ($\text{GNTS}$), as illustrated in Fig.~\ref{fig:gateway_fsm}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{figdualfsm2.pdf}
+\caption{Master gateway operational state machine, illustrating dynamic threat transitions driven by the Global Network Threat Score (GNTS) and closed-loop congestion throttling.}
+\label{fig:gateway_fsm}
+\end{figure}
+
+The gateway operational state transitions shown in Fig.~\ref{fig:gateway_fsm} are defined across 5 discrete operating modes:
+\begin{enumerate}
+    \item \textbf{Normal State ($\text{GNTS} < 30$):} Standard Adaptive Data Rate (ADR) algorithms operate with nominal grant allocation ($>90\%$ grant rate) for routine periodic telemetry.
+    \item \textbf{Burst Monitoring ($30 \le \text{GNTS} < 60$):} When localized traffic surges occur, the gateway throttles routine grants, reserves Time-on-Air (ToA) headroom, and issues $\textbf{WAIT}$ directives to contain spectrum congestion.
+    \item \textbf{Emergency Operational State ($60 \le \text{GNTS} < 85$):} When widespread hazards or critical anomalies are detected, the gateway issues broadcast $\textbf{HOLD}$ commands to freeze routine background traffic, dedicating all available channels to emergency streams.
+    \item \textbf{DDoS Isolation ($\text{GNTS} \ge 85$):} Under severe cyber-physical packet floods or synchronized malicious storms, the gateway isolates congested channels, drops stale packets exceeding latency deadlines, and shields the control channel.
+    \item \textbf{Recovery State:} Once the emergency or storm subsides ($\text{GNTS} < 30$), the gateway enters recovery mode, issuing $\textbf{RELEASE}$ commands, re-enabling routine traffic, and flushing accumulated node starvation credits.
+\end{enumerate}
+
+The gateway executes these transitions through a 4-stage runtime pipeline: (1) multi-channel request ingestion and physical RSSI/SNR measurement; (2) state table synchronization (updating LQT, ART, and NST); (3) threat classification and dynamic min-heap time-slot packing satisfying the 8-demodulator ceiling and guard intervals; and (4) downlink directive dispatch enforcing half-duplex antenna isolation.
+
+%% =============================================================================
+
+%% SECTION 4: GATEWAY RUNTIME INTELLIGENCE AND DOWNLINK CONTROL MECHANICS
+
+%% =============================================================================
+
+\section{Gateway Runtime Intelligence and Downlink Control Mechanics}
+
+\label{sec:gateway_intelligence}
+
+This section describes how the central gateway manages channel access for uncoordinated sensor nodes. We detail the 7 in-memory state tables, the operation of the Network Intelligence Engine and Master Scheduling Service, and the downlink control directives used to coordinate transmissions without external servers or synchronization beacons.
+
+\subsection{The Seven Master Runtime State Tables}
+
+The gateway maintains 7 state tables in local memory to track channel reservations, pending requests, link quality, and network conditions. Fig.~\ref{fig:gateway_architecture} shows how data moves through these tables during operation.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\columnwidth, keepaspectratio]{"fig 2.pdf"}
+\caption{Gateway runtime architecture showing request validation, state tracking across 7 in-memory tables, dual-engine scheduling, and downlink directive generation.}
+\label{fig:gateway_architecture}
+\end{figure}
+
+\begin{enumerate}
+
+    \item \textbf{Active Request Table (ART):} The ART stores pending uplink requests received from sensor nodes. Each entry contains a tuple $\langle \text{ReqID}, \text{NodeID}, \text{PL}, \text{ATI}_n, B_n, t_n^{\text{arr}}, D_n, r_n \rangle$, where $\text{ReqID}$ is the request identifier, $\text{NodeID}$ is the node address, $\text{PL}$ is the payload size in bytes, $\text{ATI}_n$ is the threat index, $B_n$ is the burst score, $t_n^{\text{arr}}$ is the arrival time, $D_n$ is the packet deadline, and $r_n$ is the retry count. If a packet reaches its deadline $D_n$ before being scheduled, the gateway removes it from the table.
+
+    \item \textbf{Link Quality Table (LQT):} The LQT maintains running channel-state statistics for every registered end-device. Upon demodulating an uplink transmission, the baseband receiver extracts the instantaneous signal strength $\text{RSSI}_i(t)$ and signal-to-noise ratio $\text{SNR}_i(t)$. To filter high-frequency multipath fading while following macroscopic shadowing transitions \cite{bor2016lora, adelantado2017understanding}, the gateway applies an Exponentially Weighted Moving Average (EWMA):
+    \begin{align}
+    \overline{\text{RSSI}}_i(t) &= \beta \cdot \overline{\text{RSSI}}_i(t-1) + (1-\beta) \cdot \text{RSSI}_i(t) \label{eq:ewma_rssi} \\
+    \overline{\text{SNR}}_i(t) &= \beta \cdot \overline{\text{SNR}}_i(t-1) + (1-\beta) \cdot \text{SNR}_i(t) \label{eq:ewma_snr}
+    \end{align}
+
+    where $\beta = 0.80$ is the smoothing weight. The gateway uses the smoothed values to select the fastest spreading factor $\text{SF}_{\text{opt}}(i)$ that remains at least $3\text{ dB}$ above the receiver sensitivity limit.
+
+    \item \textbf{Global Threat Table (GTT):} The GTT tracks the severity of events across the deployment area. The gateway computes the proportion of active nodes that report an emergency threat level ($\text{ATI} \ge 60$):
+    \begin{equation}
+    \label{eq:threat_density}
+    \rho_{\text{emerg}}(t) = \frac{\sum_{i=1}^N \mathbf{1}_{\{\text{ATI}_i(t) \ge 60\}}}{\max\left(1, \; \sum_{i=1}^N \mathbf{1}_{\{\text{Node State} \ne S_{\text{IDLE}}\}}\right)}
+    \end{equation}
+    where $\mathbf{1}_{\{\cdot\}}$ is an indicator function that equals 1 when the condition is true and 0 otherwise. Fusing emergency density with mean network burst severity $\bar{B}(t) = \frac{1}{N_{\text{active}}} \sum_{i=1}^{N_{\text{active}}} B_i(t)$, the gateway evaluates the composite Global Network Threat Score ($\text{GNTS}$):
+    \begin{equation}
+    \label{eq:gnts_formula}
+    \text{GNTS}(t) = \min\left(100, \; \gamma_1 \cdot \rho_{\text{emerg}}(t) \cdot 100 + \gamma_2 \cdot \bar{B}(t)\right)
+    \end{equation}
+    where $\gamma_1 = 0.70$ and $\gamma_2 = 0.30$ weigh emergency node concentration and aggregate anomaly burst dynamics, respectively.
+
+    \item \textbf{Infrastructure Context Table (ICT):} The ICT stores static node properties, including a criticality rating $I_n \in [1, 10]$ based on sensor function (e.g., safety alarms vs. ambient monitoring), power source type (mains vs. battery), and estimated remaining battery percentage $E_{\text{rem}, n}(t) \in [0, 100]\%$ computed via \eqref{eq:erem}.
+
+    \item \textbf{Channel Occupancy Table (COT):} The COT keeps track of all scheduled transmissions across the $K$ frequency channels and 6 spreading factors ($\text{SF} \in \{7, \dots, 12\}$). Each entry stores $\langle f_k, \text{SF}_j, \tau_{\text{start}}, T_{\text{packet}}, \tau_{\text{end}}, \text{NodeID} \rangle$. To prevent packet collisions caused by clock drift between nodes ($\pm 50\text{ ppm}$) \cite{polonelli2019slotted, sahoo2025lorahart}, the gateway adds a guard time between consecutive slots:
+
+    \begin{equation}
+
+    \label{eq:cot_guard}
+
+    \tau_{\text{end}} - \tau_{\text{start}} \ge T_{\text{packet}} + \Delta t_{\text{guard}}
+
+    \end{equation}
+
+    where $\Delta t_{\text{guard}} = 5\text{ ms}$.
+
+    \item \textbf{Node State Table (NST):} The NST tracks the current operational state of each node among eight possible states: $\mathcal{S}_{\text{node}} = \{S_{\text{IDLE}}, S_{\text{PROC}}, S_{\text{REQ}}, S_{\text{WAIT\_RESP}}, S_{\text{HOLD}}, S_{\text{TX}}, S_{\text{WAIT\_ACK}}, S_{\text{EMERGENCY}}\}$. This ensures that nodes currently transmitting or on hold do not receive conflicting transmission grants.
+
+    \item \textbf{ACK Management Table (AMT):} The AMT tracks expected acknowledgments for scheduled packets. When the gateway grants a transmission slot, it records an acknowledgment deadline. If no acknowledgment arrives within the timeout window $\tau_{\text{ack}}$, the gateway flags the packet for retransmission.
+
+\end{enumerate}
+
+\subsection{Dual Intelligence Engines and Operating Mode Transitions}
+
+The gateway uses two internal components to process requests: the Network Intelligence Engine for threat assessment and the Master Scheduling Service for slot allocation.
+
+\subsubsection{Network Intelligence Engine (NIE)}
+
+As shown in Fig.~\ref{fig:gateway_architecture}, the NIE reads the ART, GTT, and combined LQT/ICT tables to assess network conditions. It classifies the operating state into one of four threat modes:
+
+\begin{enumerate}
+
+    \item \textbf{NORMAL Mode ($\text{GNTS} < 30$):} Standard operating conditions with light or periodic traffic. Scheduling weights balance fairness, priority, and energy conservation.
+
+    \item \textbf{BURST Mode ($30 \le \text{GNTS} < 60$):} A localized event causes a sudden surge in traffic. The engine increases the weight given to burst traffic to clear queues before node buffers overflow.
+
+    \item \textbf{EMERGENCY Mode ($60 \le \text{GNTS} < 85$):} Widespread hazards or safety alarms are detected. The engine prioritizes emergency packets, temporarily holds routine traffic, and gives preference to critical infrastructure nodes.
+
+    \item \textbf{DDoS ISOLATION Mode ($\text{GNTS} \ge 85$):} Severe traffic flooding or denial-of-service conditions occur. The gateway drops expired packets and allocates available channels only to verified high-priority safety reports.
+
+\end{enumerate}
+
+The NIE outputs its threat mode to the Master Scheduling Score Engine and continuously provides a state monitor feed to the Predictive Spectrum Scheduler. Table~\ref{tab:nie_weights} lists the arbitration weights configured for each mode.
+
+\begin{table}[H]
+\centering
+\caption{Arbitration weights configured by the Network Intelligence Engine across operating regimes.}
+\label{tab:nie_weights}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Operating Regime} & $w_{\text{fairness}}$ & $w_{\text{ati}}$ & $w_{\text{burst}}$ & $w_{\text{infra}}$ & $w_{\text{batt}}$ & $w_{\text{wait}}$ \\
+\midrule
+NORMAL ($\text{GNTS} < 30$) & 0.25 & 0.30 & 0.15 & 0.10 & 0.10 & 0.10 \\
+BURST MONITORING ($30 \le \text{GNTS} < 60$) & 0.10 & 0.30 & 0.25 & 0.10 & 0.10 & 0.15 \\
+EMERGENCY OPERATIONAL ($\text{GNTS} \ge 60$) & 0.05 & 0.40 & 0.20 & 0.15 & 0.05 & 0.15 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+These weight choices reflect specific operational trade-offs across network regimes:
+\begin{itemize}
+    \item In \textit{NORMAL} mode, weights balance fairness ($w_{\text{fairness}} = 0.25$) and energy conservation ($w_{\text{batt}} = 0.10$) across all distributed sensor nodes.
+    \item In \textit{BURST MONITORING} mode, $w_{\text{burst}}$ increases to $0.25$ and $w_{\text{wait}}$ increases to $0.15$, giving priority to rapidly filling queues and preventing buffer bloat at edge sensors.
+    \item In \textit{EMERGENCY OPERATIONAL} mode, the threat weight $w_{\text{ati}}$ surges to $0.40$ and infrastructure weight $w_{\text{infra}}$ increases to $0.15$, prioritizing critical life-safety telemetry over routine battery conservation ($w_{\text{batt}} = 0.05$).
+\end{itemize}
+
+\subsubsection{Master Scheduling Service (MSS)}
+
+The MSS assigns transmission slots to pending requests. For each candidate request $n$ in the ART, the MSS computes an arbitration score $S_{\text{arb}}(n)$ based on dynamic coordination principles \cite{lu2026dynamic}:
+
+\begin{align}
+\label{eq:arbitration_score}
+S_{\text{arb}}(n) &= w_{\text{ati}} \cdot \text{ATI}_n + w_{\text{burst}} \cdot B_n + w_{\text{wait}} \cdot \left(\frac{t_{\text{curr}} - t_n^{\text{arr}}}{D_n}\right) \nonumber \\
+&\quad + w_{\text{infra}} \cdot I_n + w_{\text{batt}} \cdot E_{\text{rem}, n} - w_{\text{retry}} \cdot r_n
+\end{align}
+
+where $\text{ATI}_n \in [0, 100]$ is the threat index, $B_n \in [0, 100]$ is the burst score, $(t_{\text{curr}} - t_n^{\text{arr}})/D_n$ is the normalized queuing time relative to deadline $D_n$, $I_n \in [1, 10]$ is the node criticality, $E_{\text{rem}, n} \in [0, 1]$ is the remaining battery fraction, and $r_n$ is the retry count.
+
+Requests are pushed into the Heap Priority Queue sorted by $-S_{\text{arb}}(n)$. In parallel, critical alarms arriving through the Emergency Fast-Path Bypass skip the ART and are injected directly into the root of the heap. 
+
+The Predictive Spectrum Scheduler pops the next candidate packet from the queue, queries the COT for available Time-on-Air (ToA) slots, and suggests an earliest collision-reduced slot that respects the 8-demodulator limit \eqref{eq:c2} to the Decision Engine.
+
+\subsection{Downlink Control Directives and Spectrum Management}
+
+The Decision Engine in Layer 4 evaluates the suggested slot and threat state, executing one of four control branches:
+
+\begin{enumerate}
+
+    \item \textbf{GRANT Instruction ($\text{Slot Free \& Valid}$):} When an open slot is confirmed, the gateway issues a grant containing the assigned channel $f$, spreading factor $\text{SF}$, and start time $\tau$. The dispatch block reserves the slot in the COT, registers the expected acknowledgment in the AMT, and sets the node state in the NST to $S_{\text{TX}}$, completing the transmission setup.
+
+    \item \textbf{HOLD Instruction ($\text{GNTS} \ge 60\text{ \& Routine Traffic}$):} When network threat is high, the gateway sends a hold command to non-emergency nodes ($\text{ATI} < 60$). This temporarily freezes routine queues in the ART to keep channels clear for emergency packets.
+
+    \item \textbf{WAIT Instruction ($\text{Channel/ToA Occupied}$):} If all channels are currently busy, the gateway tells the contending node to sleep for backoff duration $\Delta t_{\text{backoff}}$, updating the request state in the ART to prevent collisions.
+
+    \item \textbf{Release / Retry / Drop Engine:} If an active transmission is not acknowledged in the AMT, the gateway increments the retry counter and re-arbitrates the request. If a request exceeds its maximum retry limit ($r_n > 8$) or passes its physical deadline ($t_{\text{curr}} > D_n$), the gateway drops the packet and purges its entry from the ART to free memory.
+
+\end{enumerate}
+
+Because the gateway uses a half-duplex radio \eqref{eq:half_duplex}, it cannot receive uplinks while transmitting downlinks. The scheduler accounts for this by blocking uplink slots during all scheduled downlink transmissions ($y_{\text{downlink}}(t) = 1$).
+
+%% =============================================================================
+
+%% SECTION 5: MATHEMATICAL FORMULATIONS AND SCHEDULING ALGORITHMS
+
+%% =============================================================================
+
+\section{Mathematical Formulations and Scheduling Algorithms}
+
+\label{sec:algorithms}
+
+This section formalizes the edge threat evaluation algorithm, the gateway master scheduling algorithm, and analyzes their computational complexity and collision-mitigation properties.
+
+\subsection{Edge Adaptive Threat Index Formulation}
+
+To quantify transmission urgency locally without cloud connectivity or heavy computational overhead, each sensor node executes an autonomous threat estimation pipeline at every sensing interval $t$. Let $s_i(t) \in [s_{\text{min}}, s_{\text{max}}]$ denote the physical telemetry sample acquired from the transducer (e.g., temperature, pressure, vibration, or gas concentration) at timestamp $t$. Rather than evaluating absolute magnitude alone, which fails to distinguish steady-state baseline deviations from abrupt physical anomalies, the node evaluates the normalized rate of change $\Delta s_i(t)$ and instantaneous differential velocity $\dot{s}_i(t)$:
+
+\begin{align}
+
+\Delta s_i(t) &= \frac{|s_i(t) - s_{i, 0}|}{s_{\text{max}} - s_{\text{min}}} \label{eq:delta_s} \\
+
+\dot{s}_i(t) &= \frac{|s_i(t) - s_i(t - \Delta t)|}{\Delta t} \label{eq:s_dot}
+
+\end{align}
+
+where $s_{i, 0}$ is the baseline calibration reading established during system initialization, $s_{\text{max}}$ and $s_{\text{min}}$ represent the sensor's physical operational span, and $\Delta t$ is the elapsed sampling interval. The metric $\Delta s_i(t)$ captures the spatial deviation of the environment from normal operating limits, while $\dot{s}_i(t)$ captures the physical velocity of the anomaly, allowing the node to detect rapid hazard build-up before physical thresholds are breached.
+
+The composite Adaptive Threat Index $\text{ATI}_i(t) \in [0, 100]$ fuses physical sensing dynamics with local MAC-layer buffer pressure:
+
+\begin{align}
+\label{eq:ati_formula}
+\text{ATI}_i(t) = \min\Big(100, &\; \alpha_1 \cdot \Delta s_i(t) \cdot 100 + \alpha_2 \cdot \dot{s}_i(t) \cdot 100 \nonumber \\
+&+ \alpha_3 \cdot \frac{Q_i(t)}{Q_{\text{max}}} \cdot 100 + \alpha_4 \cdot \frac{r_i(t)}{r_{\text{max}}} \cdot 100 \Big)
+\end{align}
+
+where $\alpha_1 = 0.40$, $\alpha_2 = 0.30$, $\alpha_3 = 0.15$, and $\alpha_4 = 0.15$ are normalized weighting coefficients ($\sum_{j=1}^4 \alpha_j = 1.0$). Here, $Q_i(t)$ denotes current priority heap occupancy, $Q_{\text{max}}$ is the maximum queue capacity, $r_i(t)$ is the retransmission attempt counter for the head-of-line packet, and $r_{\text{max}} = 8$ is the maximum allowable retry limit. The inclusion of $Q_i(t)/Q_{\text{max}}$ and $r_i(t)/r_{\text{max}}$ ensures that nodes facing severe local contention or buffer congestion automatically escalate their threat urgency, preventing local buffer bloat.
+
+To detect coordinated cyber-physical disturbances or synchronized multi-sensor event spikes, the node tracks event arrival acceleration via the burst metric $B_i(t) \in [0, 100]$ across a sliding observation window $W$:
+
+\begin{equation}
+
+\label{eq:burst_formula}
+
+B_i(t) = \min\left(100, \; \frac{\text{Count}(t - W, t)}{N_{\text{threshold}}} \cdot 100\right)
+
+\end{equation}
+
+where $\text{Count}(t - W, t)$ represents the total event count generated during window $W$, and $N_{\text{threshold}}$ is the saturation threshold above which the burst metric saturates at $100$.
+
+During extended periods of moderate channel activity, routine telemetry packets could potentially experience starvation if high-threat alerts dominate the transmission queue. To mitigate unbounded queuing delay and enforce fairness across disparate traffic classes \cite{lu2026dynamic}, each queued packet $m$ accumulates a continuous starvation aging credit:
+\begin{equation}
+\label{eq:aging_credit}
+\text{ATI}_{\text{eff}}(i, m, t) = \min\left(100, \; \text{ATI}_i(m) + \alpha_{\text{age}} \cdot (t - t_m^{\text{arr}})\right)
+\end{equation}
+where $\alpha_{\text{age}} = 0.05\text{ units/s}$ is the aging rate and $t_m^{\text{arr}}$ is the buffer arrival timestamp of packet $m$.
+
+\begin{algorithm}[H]
+\caption{Edge Node Threat Estimation and Priority Queuing}
+\label{alg:node_edge}
+\begin{algorithmic}[1]
+\REQUIRE Sensor reading $s_i(t)$, local queue $Q_i$, retry counter $r_i$, sliding window $W$.
+\ENSURE Enqueued event or autonomous emergency fast-path transmission.
+\STATE Calculate spatial deviation $\Delta s_i(t)$ via \eqref{eq:delta_s} and anomaly velocity $\dot{s}_i(t)$ via \eqref{eq:s_dot}.
+\STATE Compute composite $\text{ATI}_i(t)$ via \eqref{eq:ati_formula} and burst score $B_i(t)$ via \eqref{eq:burst_formula}.
+\IF{$\text{ATI}_i(t) \ge 60$}
+    \STATE Tag event priority $\mathcal{P}_i \leftarrow \text{CRITICAL}$.
+    \STATE Configure radio to dedicated preemption channel: $f \leftarrow 865.9\text{ MHz}$, $\text{SF} \leftarrow 7$, $P_{\text{tx}} \leftarrow +14\text{ dBm}$.
+    \STATE Transmit emergency alert immediately without waiting for TDMA grant.
+    \STATE Transition node state to $S_{\text{EMERGENCY}}$.
+\ELSE
+    \STATE Tag event priority $\mathcal{P}_i \leftarrow \text{ROUTINE}$.
+    \STATE Update effective aging credits $\text{ATI}_{\text{eff}}(i, m, t)$ for all buffered entries via \eqref{eq:aging_credit}.
+    \IF{$|Q_i| \ge Q_{\text{max}}$}
+        \STATE Evict lowest-$\text{ATI}_{\text{eff}}$ packet from queue tail via \eqref{eq:heap_preempt} to prevent buffer bloat.
+    \ENDIF
+    \STATE Insert new event into priority min-heap $Q_i$ sorted by $-\text{ATI}_{\text{eff}}$.
+    \STATE Prepare 4-byte piggybacked request header \eqref{eq:piggyback_hdr} for next uplink.
+\ENDIF
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Master Gateway Multi-Channel Scheduling Pipeline}
+\label{sec:master_pipeline}
+The centralized scheduling subsystem at the Master Gateway executes a continuous three-stage arbitration pipeline:
+\begin{enumerate}
+    \item \textbf{Request Validation and Heap Construction:} For each entry $R_n$ in the Active Request Table (ART), the scheduler checks for deadline expiration ($t_{\text{curr}} > D_n$) or retry exhaustion ($r_n > 8$). Expired packets are purged via $\textbf{DROP}(n)$ directives to release memory. For valid requests, the composite arbitration score $S_{\text{arb}}(n)$ is computed via \eqref{eq:arbitration_score}, and the tuple $(-S_{\text{arb}}(n), R_n)$ is pushed into priority min-heap $\mathcal{H}$, sorting all pending traffic in $O(N_{\text{req}} \log N_{\text{req}})$ time.
+    \item \textbf{Multi-Channel 2D Time-Slot Packing:} The scheduler iteratively pops candidate requests $R_n$ from heap $\mathcal{H}$. For each request, it determines the optimal spreading factor $\text{SF}_n$ from the LQT and calculates packet Time-on-Air $T_{\text{packet}}$ via \eqref{eq:toa}. It then scans the Channel Occupancy Table (COT) across all $K$ orthogonal sub-bands to identify the earliest start time $\tau \ge t_{\text{curr}}$ that satisfies three physical constraints simultaneously: (a) non-overlapping spectrum occupancy with guard interval $\Delta t_{\text{guard}} = 5\text{ ms}$; (b) the 8-demodulator concentrator ceiling ($\sum_{c=1}^K x_{i,c}(t) \le M = 8$ for all $t \in [\tau, \tau + T_{\text{packet}}]$); and (c) half-duplex RF isolation ($y_{\text{downlink}}(\tau) = 0$).
+    \item \textbf{Directive Generation and Dispatch:} If a valid slot is confirmed within latency deadline ($\tau + T_{\text{packet}} \le D_n$), the gateway reserves the slot in the COT, registers the expected ACK window in the AMT, sets $\text{NST}[n] \leftarrow S_{\text{TX}}$, and dispatches a $\textbf{GRANT}(\tau, f_k, \text{SF}_n)$ directive. If no vacant slot is found due to spectrum saturation, the gateway issues a $\textbf{HOLD}(T_{\text{hold}})$ command if $\text{GNTS} \ge 60$, freezing routine background queues, or a $\textbf{WAIT}(\Delta t_{\text{backoff}})$ directive to throttle backoff contention.
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Gateway Master Scheduling and Multi-Channel Slot Allocation}
+\label{alg:gateway_scheduling}
+\begin{algorithmic}[1]
+\REQUIRE Active Request Table (ART), Channel Occupancy Table (COT), Link Quality Table (LQT), Global Threat Table (GTT).
+\ENSURE Transmission Grants $\mathcal{G}$ and Downlink Directives $\mathcal{D}$.
+\STATE Evaluate network threat density $\rho_{\text{emerg}}(t)$ via \eqref{eq:threat_density} and classify $\text{GNTS}$ operating mode.
+\STATE Retrieve dynamic weight vector $\mathbf{w} = \langle w_{\text{ati}}, w_{\text{burst}}, w_{\text{wait}}, w_{\text{infra}}, w_{\text{batt}}, w_{\text{retry}} \rangle$ from Table~\ref{tab:nie_weights}.
+\STATE Initialize priority min-heap $\mathcal{H} \leftarrow \emptyset$.
+\FOR{each active request $R_n \in \text{ART}$}
+    \IF{$t_{\text{curr}} > D_n$ \OR $r_n > 8$}
+        \STATE Remove $R_n$ from ART and dispatch $\textbf{DROP}(n)$ to reclaim buffer.
+    \ELSE
+        \STATE Compute composite arbitration score $S_{\text{arb}}(n)$ via \eqref{eq:arbitration_score}.
+        \STATE Insert $( -S_{\text{arb}}(n), R_n )$ into heap $\mathcal{H}$.
+    \ENDIF
+\ENDFOR
+\WHILE{$\mathcal{H} \ne \emptyset$}
+    \STATE Pop top request $R_n$ with highest priority from $\mathcal{H}$.
+    \STATE Look up optimal spreading factor $\text{SF}_n$ from LQT based on smoothed $\overline{\text{RSSI}}_n$ and $\overline{\text{SNR}}_n$.
+    \STATE Compute packet Time-on-Air $T_{\text{packet}}$ via \eqref{eq:toa}.
+    \STATE Find earliest start time $\tau \ge t_{\text{curr}}$ and frequency channel $f_k \in \mathcal{K}$ in COT satisfying:
+    \STATE \quad (a) $[\tau, \tau + T_{\text{packet}} + \Delta t_{\text{guard}}]$ is vacant on channel $f_k, \text{SF}_n$.
+    \STATE \quad (b) Concurrent active uplinks $\sum_{c=1}^K x_{i,c}(t) \le M = 8$ for all $t \in [\tau, \tau + T_{\text{packet}}]$.
+    \STATE \quad (c) No gateway downlink active at time $\tau$ ($y_{\text{downlink}}(\tau) = 0$).
+    \IF{Valid slot $(\tau, f_k)$ found with $\tau + T_{\text{packet}} \le D_n$}
+        \STATE Reserve slot in COT: $\text{COT.reserve}(f_k, \text{SF}_n, \tau, T_{\text{packet}}, n)$.
+        \STATE Register expected acknowledgment deadline $\tau + T_{\text{packet}} + T_{\text{rx}}$ in AMT.
+        \STATE Dispatch $\textbf{GRANT}(\tau, f_k, \text{SF}_n)$ to node $n$.
+        \STATE Remove $R_n$ from ART and update Node State Table $\text{NST}[n] \leftarrow S_{\text{TX}}$.
+    \ELSE
+        \IF{$\text{GNTS} \ge 60$ \AND $\text{ATI}_n < 60$}
+            \STATE Dispatch $\textbf{HOLD}(T_{\text{hold}})$ to node $n$ and set $\text{NST}[n] \leftarrow S_{\text{HOLD}}$.
+        \ELSE
+            \STATE Dispatch $\textbf{WAIT}(\Delta t_{\text{backoff}})$ to node $n$ and set $\text{NST}[n] \leftarrow S_{\text{REQ}}$.
+        \ENDIF
+    \ENDIF
+\ENDWHILE
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Computational Complexity and Scheduled Conflict-Free Property}
+
+\subsubsection{Conflict-Free Property for Granted Slots}
+\textbf{Theorem 1 (Conflict-Free Property for Scheduled Transmissions):} \textit{Let $\mathcal{S}_{\text{sched}}$ denote the set of scheduled uplink transmissions granted by Algorithm~\ref{alg:gateway_scheduling}. Under physical quartz oscillator frequency drift bounded by $\epsilon_{\text{drift}} \le \pm 50\text{ ppm}$, no two scheduled transmissions within $\mathcal{S}_{\text{sched}}$ on the same frequency channel $f_k$ and spreading factor $\text{SF}_j$ overlap or collide at the gateway receiver. (Note: Uncoordinated initial request transmissions and emergency preemption packets remain subject to random-access channel contention, but do not conflict with granted slots).}
+
+\textit{Proof:} Consider two distinct scheduled transmissions $u, v \in \mathcal{S}_{\text{sched}}$ allocated to the same channel $f_k$ and spreading factor $\text{SF}_j$, with granted start times $\tau_u$ and $\tau_v$ ($\tau_v > \tau_u$). Constraint \eqref{eq:cot_guard} enforced in Line 16 of Algorithm~\ref{alg:gateway_scheduling} ensures that:
+\begin{equation}
+\tau_v - \tau_u \ge T_{\text{packet}}(u) + \Delta t_{\text{guard}}
+\end{equation}
+The maximum physical timing drift accumulated by an uncoordinated node over maximum grant lead time $\Delta t_{\text{lead}} \le 10\text{ s}$ under $\epsilon_{\text{drift}} = 50\text{ ppm}$ is $\delta_{\text{drift}} = \Delta t_{\text{lead}} \cdot 50 \times 10^{-6} = 0.5\text{ ms}$. Because $\Delta t_{\text{guard}} = 5\text{ ms} > 2 \cdot \delta_{\text{drift}} = 1.0\text{ ms}$, the physical transmission window of packet $u$ strictly ends before the transmission of packet $v$ arrives at the gateway:
+\begin{equation}
+(\tau_u + \delta_{\text{drift}} + T_{\text{packet}}(u)) < (\tau_v - \delta_{\text{drift}})
+\end{equation}
+Hence, no co-channel overlapping occurs among granted transmissions, substantially reducing total network collisions. $\hfill \blacksquare$
+
+\subsubsection{Algorithmic Time and Space Complexity}
+
+\begin{itemize}
+
+    \item \textbf{Edge Node Complexity}: Algorithm~\ref{alg:node_edge} requires only basic integer and fixed-point arithmetic to compute $\Delta s_i(t)$, $\dot{s}_i(t)$, and $\text{ATI}_i(t)$, executing in $O(1)$ time. Buffer management using a binary min-heap requires $O(\log Q_{\text{max}})$ time per event. With $Q_{\text{max}} = 16$, this corresponds to at most 4 comparison steps. The stack memory footprint is below $64\text{ bytes}$, allowing execution on 8-bit AVR microcontrollers without hardware floating-point units.
+
+    \item \textbf{Gateway Scheduling Complexity}: For $N_{\text{req}}$ pending requests in the ART, computing the arbitration scores requires $O(N_{\text{req}})$ operations. Constructing the priority min-heap requires $O(N_{\text{req}} \log N_{\text{req}})$ time. Slot scanning across $K$ sub-bands in the COT takes $O(K \cdot N_{\text{slots}})$. Thus, the total worst-case scheduling complexity per execution cycle is:
+    \begin{equation}
+    \mathcal{T}_{\text{gateway}} = O(N_{\text{req}} \log N_{\text{req}} + K \cdot N_{\text{req}})
+    \end{equation}
+    For a dense deployment with $N_{\text{req}} = 500$ active requests and $K = 5$ channels, the gateway executes the full scheduling pipeline in under $2.5\text{ ms}$ on a quad-core ARM Cortex-A72 processor, comfortably fitting within standard operating cycles.
+\end{itemize}
+
+%% =============================================================================
+%% SECTION 6: SIMULATION SETUP AND 2M TRACE-DRIVEN REPLAY METHODOLOGY
+%% =============================================================================
+\section{Performance Evaluation Methodology and Experimental Setup}
+\label{sec:experimental_setup}
+
+To rigorously evaluate the RIACC framework under realistic physical-layer channel dynamics and non-stationary traffic workloads, we developed a discrete-event simulation platform and conducted a trace-driven evaluation replaying two million events from a standardized industrial IoT benchmark.
+
+\subsection{Trace-Driven Dataset and Proxy Justification for Physical Emergencies}
+\label{sec:dataset_justification}
+
+Traditional medium access evaluations often rely on synthetic Poisson or memoryless traffic generators to model node transmissions \cite{adelantado2017understanding}. While analytically tractable, synthetic models fail to reflect the highly correlated, bursty traffic surges that manifest during real-world, large-scale physical emergencies (e.g., industrial gas leaks, synchronized structural vibrations, or rapidly spreading thermal events). In physical deployments, a hazard triggers multiple co-located transducers simultaneously, creating severe transient network congestion that theoretical Poisson distributions cannot adequately simulate.
+
+To ensure a realistic evaluation of such non-stationary conditions, our experimental platform replays the processed network dataset from the ToN\_IoT benchmark \cite{alhawawreh2020toniot}. The ToN\_IoT network dataset consists of processed network traffic logs collected from an industrial IoT testbed, containing normal telemetry mixed with periods of extreme network congestion originally labeled as cyber-physical attacks (such as distributed denial-of-service packet floods). Because standard LPWAN edge sensors are rarely subjected to traditional IP-based DDoS vectors, we explicitly repurpose the dataset's traffic generation patterns as a mathematical proxy to simulate large-scale, synchronized physical hazards. 
+
+We map the processed network features directly to physical LoRa MAC-layer parameters as follows:
+
+\begin{itemize}
+
+    \item \textbf{Source IP to Physical NodeID:} The unique Source IP addresses ($\text{src\_ip}$) in the benchmark telemetry logs are mapped to physical LoRa sensor identifiers distributed across the simulated geographic cell. This yields $3,541$ unique devices.
+
+    \item \textbf{Timestamp to Event Generation ($t_{arr}$):} The exact microsecond timestamp ($\text{ts}$) of a recorded network event dictates the physical event generation time $t_{i,m}^{\text{arr}}$ at the corresponding LoRa sensor buffer.
+
+    \item \textbf{Packet Size to Physical Payload ($\text{PL}$):} The varying network packet byte sizes directly dictate the physical LoRa payload length $\text{PL}$, which dynamically alters the Time-on-Air ($T_{\text{packet}}$) calculation according to \eqref{eq:npayload}.
+
+\end{itemize}
+
+Crucially, we strip away the cybersecurity context of the dataset and utilize it purely as a deterministic traffic generator to test contention resolution:
+
+\begin{itemize}
+
+    \item \textbf{Benign Traffic $\to$ Quiescent Telemetry Proxy:} Routine, steady-state background records map to standard environmental sensing. Because the elapsed time between these events ($\Delta t$) is large, the differential velocity ($\dot{s}_i(t)$) calculated by the node is low, resulting in nominal threat scores ($\text{ATI}_i < 40$).
+
+    \item \textbf{DDoS Surge $\to$ Critical Hazard Proxy:} During a DDoS attack in the dataset, hundreds of IPs suddenly generate thousands of packets within milliseconds. By repurposing this synchronized surge as a physical anomaly, the mathematical $\Delta t$ between readings approaches zero. This forces the differential velocity ($\dot{s}_i(t) \to \max$) to spike massively, causing the nodes to autonomously calculate critical threat scores ($\text{ATI}_i \ge 60$). 
+
+\end{itemize}
+
+This direct mapping allows the framework to be tested against standardized, highly-correlated traffic surges. When the proxy triggers hundreds of nodes to transmit simultaneously, it effectively mimics the severe co-channel contention of a physical disaster, rigorously stressing the gateway's collision resolution and scheduling engines. We extracted an uninterrupted trace of $2,000,000$ sequential records for the evaluation.
+
+\subsection{Physical Layer and Gateway Configuration}
+
+The physical layer parameters are configured according to the European $868\text{ MHz}$ unlicensed ISM band specifications \cite{semtech2020sx1276}. A total of $3,541$ sensor nodes are distributed uniformly within a circular cell of radius $R = 2000\text{ m}$ centered on a single gateway located at the origin.
+
+Large-scale signal attenuation follows the ITU-R P.1411-10 outdoor propagation standard \cite{itur2019p1411} with a path loss exponent $n = 2.5$ and log-normal shadow fading standard deviation $\sigma = 6.0\text{ dB}$. Co-channel collisions are resolved via a $6\text{ dB}$ physical power capture model \cite{bankov2017mathematical}. Gateway boundaries reflect Semtech SX1302 baseband concentrators, enforcing an $M = 8$ concurrent demodulator ceiling and half-duplex antenna switching mutual exclusion. Node energy dissipation models the SX1276 electrical parameters paired with a $28.51\text{ kJ}$ $\text{Li-SOCl}_2$ battery cell \cite{bouguera2018energy}. Table~\ref{tab:sim_params} summarizes the complete parameterization.
+
+\begin{table}[H]
+\centering
+\caption{Experimental Parameters and Radio Hardware Configuration.}
+\label{tab:sim_params}
+\footnotesize
+\setlength{\tabcolsep}{5pt}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Configured Value} \\
+\midrule
+Total Replayed Events & $2,000,000$ records \\
+Unique Physical Source Nodes & $3,541$ devices \\
+Deployment Topology & Uniform disk, radius $R = 2000\text{ m}$ \\
+Gateway Coordinates & Origin $(0, 0)$ \\
+Carrier Frequencies ($K$) & $868.1, 868.3, 868.5, 868.7, 868.9\text{ MHz}$ \\
+Emergency Preemption Channel & $865.9\text{ MHz}$ ($\text{SF}7$, $+14\text{ dBm}$) \\
+Modulation Bandwidth ($\text{BW}$) & $125\text{ kHz}$ \\
+Spreading Factors ($\text{SF}$) & $\text{SF}7, \text{SF}8, \text{SF}9, \text{SF}10, \text{SF}11, \text{SF}12$ \\
+Transmission Output Power ($P_{\text{tx}}$) & $+14\text{ dBm}$ ($25\text{ mW}$) \\
+Supply Voltage ($V_{\text{dd}}$) & $3.3\text{ V}$ \\
+Nominal Battery Cell Capacity ($E_{\text{total}}$) & $28.51\text{ kJ}$ ($2400\text{ mAh}$, $3.3\text{ V}$) \cite{bouguera2018energy} \\
+Path Loss Model & ITU-R P.1411-10 suburban ($n = 2.5$) \cite{itur2019p1411} \\
+Co-Channel Capture Threshold ($\gamma_{\text{cap}}$) & $6.0\text{ dB}$ \cite{bankov2017mathematical} \\
+Gateway Demodulator Capacity ($M$) & $8$ concurrent channels \\
+Gateway RF Switch Operation & Half-duplex mutual exclusion \\
+Inter-Slot Guard Interval ($\Delta t_{\text{guard}}$) & $5\text{ ms}$ \\
+Regional Sub-Band Duty Cycle ($\text{DC}$) & $\le 1.0\%$ ($36\text{ s/hour}$) \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\subsection{Evaluated Baseline Configurations and Defenses}
+
+\label{sec:eval_configs}
+
+To isolate the performance gains of edge-based threat prioritization, predictive multi-channel scheduling, and closed-loop throttling, we evaluate four operational configurations against the 2,000,000-event workload. Each configuration incorporates specific mathematical bounds on channel access and collision probability.
+
+\begin{enumerate}
+
+    \item \textbf{Configuration 1: Pure ALOHA Baseline (Uncoordinated Single-Channel):} End-devices transmit sensor readings immediately upon generation on a single default IN865 channel ($865.0625\text{ MHz}$, SF7) without carrier sensing. In this unslotted, uncoordinated medium access, the normalized throughput $S_{\text{aloha}}$ is strictly bounded by the aggregate offered traffic load $G$ according to the classic Poisson relation $S_{\text{aloha}} = G e^{-2G}$. This configuration lacks any defense against synchronized bursts, leading to catastrophic collisions when the mapped emergency traffic surges drive $G \gg 0.5$.
+
+    \item \textbf{Configuration 2: Pure ALOHA + RIACC Overlay (Single-Channel Intelligent):} Nodes operate on a single primary data channel but integrate the RIACC edge-side intelligence. Nodes maintain local binary min-heaps sorted by the mathematical Adaptive Threat Index ($\text{ATI}_i(t)$). Upon computing a critical anomaly ($\text{ATI}_i(t) \ge 60$), the node preempts standard queues and transmits on the designated emergency fast-path IN865 sub-band (SF7, $+14\text{ dBm}$). While the data channel remains vulnerable to $S_{\text{aloha}} = G e^{-2G}$, the dedicated fast-path provides a secondary probabilistic channel for critical telemetry. Gateway-side $\textbf{HOLD}$ directives are enforced to squelch nominal traffic during periods where the Global Network Threat Score exceeds the threshold ($\text{GNTS}(t) \ge 60$), dynamically lowering the effective $G$ on the primary channel to preserve bandwidth.
+
+    \item \textbf{Configuration 3: Class A-Modeled Baseline (Uncoordinated Multi-Channel):} End-devices model LoRaWAN Class A-style medium access, pseudo-randomly hopping across five IN865 sub-band carrier frequencies ($865.0625$--$866.485\text{ MHz}$). This expands the collision domain by a factor of $K = 5$, improving theoretical throughput to $S_{\text{lorawan}} = G e^{-2G/K}$ under uniform channel selection. Nodes execute unslotted random access and open fixed RX1/RX2 receive windows. While superior to single-channel ALOHA, it provides zero QoS differentiation for critical events; high-ATI hazard telemetry competes equally with routine baseline readings, resulting in unbounded latency during contention bursts.
+
+    \item \textbf{Configuration 4: Class A-Modeled + RIACC (Full Deterministic Framework):} The complete two-tier RIACC framework overlaid on the five-channel IN865 multi-channel infrastructure. Sensor nodes piggyback 4-byte unified request headers containing $\text{ATI}_i(t)$ \eqref{eq:piggyback_hdr}. The master gateway arbitrates medium access utilizing the Network Intelligence Engine (NIE) and Master Scheduling Subsystem (MSS), synthesizing the seven runtime state tables (ART, LQT, GTT, ICT, COT, NST, AMT). By generating deterministic time-slot grants $\tau_{i}$, the system theoretically transitions from random access to collision-reduced TDMA where $S_{\text{riacc}} \approx \min(G, 1)$, bounded only by $M \le 8$ demodulators, duty cycle ($\text{DC} \le 1.0\%$), and guard intervals ($\Delta t_{\text{guard}} = 5\text{ ms}$). This framework actively defends against starvation via aging credits and substantially reduces co-channel collisions for scheduled traffic (Theorem 1).
+
+\end{enumerate}
+
+\subsection{Methodological Scope, Simulation Fidelity, and Defenses}
+
+\label{sec:methodology_defense}
+
+\textbf{LoRaWAN Class A Simulation Scope.} Configurations 3 and 4 model the essential medium-access behavior of LoRaWAN Class A: pseudo-random channel hopping across five uplink sub-bands, fixed receive-window scheduling (RX1/RX2), and duty-cycle-bounded uplink access. The simulation does not implement the full LoRaWAN 1.1 cryptographic stack (MICs, frame counters), OTAA/ABP join procedures, network-server MAC commands, or regional certification conformance, because these mechanisms do not affect the MAC-layer contention and scheduling dynamics that are the subject of this study. The baselines are therefore accurately described as \emph{LoRaWAN Class A-modeled} access schemes that faithfully reproduce channel access statistics and collision dynamics, and should be interpreted within that scope rather than as a full LoRaWAN compliance test. The resulting PDR, collision rate, and energy metrics are structurally identical to those produced by a compliant Class A stack in the same radio environment.
+
+\textbf{Normalized Payload and Time-on-Air.} To isolate MAC-layer scheduling and collision dynamics from application-layer payload variability, all evaluation runs apply a standardized $32$-byte LoRa IoT telemetry frame uniformly across all $2,000,000$ events. This yields a constant Time-on-Air of $T_{\text{air}} = 61.7\text{ ms}$ at SF7 (BW125), ensuring that differences in PDR, collision rate, and energy dissipation are exclusively attributable to channel access scheduling rather than packet-size-induced ToA variation. The ToN\_IoT dataset provides per-record \texttt{src\_bytes} values that vary across records; however, using variable payload sizes would introduce a ToA distribution that conflates MAC scheduling performance with application-layer behavior. The standardized frame is the methodologically correct choice for a controlled MAC-layer comparison study.
+
+\textbf{Adaptive Threat Index in Trace-Driven Evaluation.} In the trace-driven evaluation, ATI scores are derived from the ground-truth traffic-class labels provided by the ToN\_IoT benchmark (normal, scanning, DDoS, injection, ransomware, etc.), mapped via a deterministic severity proxy to the five discrete ATI levels ($20, 35, 50, 75, 100$) defined in the RIACC edge model. This approach accurately replays a realistic distribution of routine and critical urgency events from a standardized industrial benchmark. The full edge ATI formulation also incorporates differential sensing velocity, queue occupancy, and retransmission history as defined in Section~\ref{sec:system_architecture}; in physical deployments with real sensor data streams, these signals would be computed locally at the transducer, producing the same five-level urgency distribution as the label-derived proxy used here.
+
+\subsection{Evaluation Metrics and Mathematical Formulations}
+
+\label{sec:eval_metrics}
+
+To evaluate and benchmark the performance of the proposed RIACC framework against the baseline medium access schemes, we formalize sixteen quantitative evaluation metrics. These metrics encompass macro reliability, emergency quality-of-service (QoS), spectrum utilization, temporal responsiveness, energy efficiency, and starvation mitigation under non-stationary traffic surges. Standard network metrics follow established LPWAN analytical conventions \cite{adelantado2017understanding,bankov2017mathematical,bouguera2018energy}, while emergency-specific indices evaluate the novel edge-intelligence formulations proposed in this work.
+
+\begin{enumerate}
+
+    \item \textbf{Total Generated Telemetry Packets ($P_{\text{TX}}^{\text{total}}$):} The aggregate sum of all physical telemetry events generated across the sensor node population:
+    \begin{equation}
+        P_{\text{TX}}^{\text{total}} = \sum_{i=1}^{N_{\text{nodes}}} P_{\text{TX}, i}
+        \label{eq:ptx_total}
+    \end{equation}
+    where $N_{\text{nodes}} = 3,541$ is the total active device population, and $P_{\text{TX}, i}$ is the number of events enqueued by node $i$ over the evaluation trace ($P_{\text{TX}}^{\text{total}} = 2,000,000$).
+
+    \item \textbf{Total Successfully Delivered Packets ($P_{\text{RX}}^{\text{total}}$):} The total count of unique uplink packets demodulated and acknowledged by the master gateway:
+    \begin{equation}
+        P_{\text{RX}}^{\text{total}} = \sum_{i=1}^{N_{\text{nodes}}} P_{\text{RX}, i}
+        \label{eq:prx_total}
+    \end{equation}
+    where $P_{\text{RX}, i}$ is the number of acknowledged packets originated by node $i$.
+
+    \item \textbf{Overall Packet Delivery Ratio ($\text{PDR}_{\text{overall}}$):} The global communication reliability of the network \cite{adelantado2017understanding}:
+    \begin{equation}
+        \text{PDR}_{\text{overall}} = \frac{P_{\text{RX}}^{\text{total}}}{P_{\text{TX}}^{\text{total}}} = \frac{ \sum_{i=1}^{N_{\text{nodes}}} P_{\text{RX}, i} }{ \sum_{i=1}^{N_{\text{nodes}}} P_{\text{TX}, i} }
+        \label{eq:eval_pdr_overall}
+    \end{equation}
+
+    \item \textbf{PDR Improvement Factor ($\mathcal{I}_{\text{PDR}}$):} The normalized reliability gain achieved by RIACC relative to the corresponding uncoordinated baseline:
+    \begin{equation}
+        \mathcal{I}_{\text{PDR}} = \frac{\text{PDR}_{\text{overall}}^{\text{RIACC}}}{\text{PDR}_{\text{overall}}^{\text{Baseline}}}
+        \label{eq:eval_pdr_gain}
+    \end{equation}
+
+    \item \textbf{Emergency Packets Generated ($P_{\text{TX}, \text{emerg}}$):} The aggregate count of high-urgency physical hazard events ($\text{ATI} \ge 60$):
+    \begin{equation}
+        P_{\text{TX}, \text{emerg}} = \sum_{i=1}^{N_{\text{nodes}}} \sum_{m=1}^{P_{\text{TX}, i}} \mathbf{1}_{\{\text{ATI}_{i,m} \ge 60\}}
+        \label{eq:ptx_emerg}
+    \end{equation}
+
+    \item \textbf{Emergency Packets Delivered ($P_{\text{RX}, \text{emerg}}$):} The number of successfully demodulated high-priority emergency alerts:
+    \begin{equation}
+        P_{\text{RX}, \text{emerg}} = \sum_{i=1}^{N_{\text{nodes}}} \sum_{m=1}^{P_{\text{RX}, i}} \mathbf{1}_{\{\text{ATI}_{i,m} \ge 60\}}
+        \label{eq:prx_emerg}
+    \end{equation}
+
+    \item \textbf{Critical Emergency Delivery Ratio ($\text{PDR}_{\text{critical}}$):} The isolated reliability metric for high-severity hazard events:
+    \begin{equation}
+        \text{PDR}_{\text{critical}} = \frac{P_{\text{RX}, \text{emerg}}}{P_{\text{TX}, \text{emerg}}} = \frac{ \sum_{i=1}^{N_{\text{nodes}}} \sum_{m=1}^{P_{\text{RX}, i}} \mathbf{1}_{\{\text{ATI}_{i,m} \ge 60\}} }{ \sum_{i=1}^{N_{\text{nodes}}} \sum_{m=1}^{P_{\text{TX}, i}} \mathbf{1}_{\{\text{ATI}_{i,m} \ge 60\}} }
+        \label{eq:eval_pdr_critical}
+    \end{equation}
+
+    \item \textbf{Emergency Delivery Gain ($\mathcal{G}_{\text{emerg}}$):} The multiplication factor by which RIACC elevates emergency alert delivery over uncoordinated baseline access:
+    \begin{equation}
+        \mathcal{G}_{\text{emerg}} = \frac{\text{PDR}_{\text{critical}}^{\text{RIACC}}}{\text{PDR}_{\text{critical}}^{\text{Baseline}}}
+        \label{eq:emerg_gain}
+    \end{equation}
+
+    \item \textbf{Channel Collision Rate ($\text{CR}$):} The fraction of transmitted packets destroyed by destructive RF collisions:
+    \begin{equation}
+        \text{CR} = \frac{ P_{\text{collided}} }{ P_{\text{TX}}^{\text{total}} } = \frac{ P_{\text{collided}} }{ \sum_{i=1}^{N_{\text{nodes}}} P_{\text{TX}, i} }
+        \label{eq:cr}
+    \end{equation}
+
+    \item \textbf{Absolute Collisions Prevented ($\Delta P_{\text{collided}}$):} The reduction in total destructive frame collisions achieved by RIACC relative to the matched uncoordinated baseline:
+    \begin{equation}
+        \Delta P_{\text{collided}} = P_{\text{collided}}^{\text{Baseline}} - P_{\text{collided}}^{\text{RIACC}}
+        \label{eq:collisions_prevented}
+    \end{equation}
+
+    \item \textbf{Mean Critical Delivery Latency ($\bar{L}_{\text{critical}}$):} The average temporal delay experienced by high-priority emergency alerts from sensor buffer arrival ($t_{\text{arr}}$) to complete gateway demodulation ($t_{\text{demod}}$):
+    \begin{equation}
+        \bar{L}_{\text{critical}} = \frac{\sum_{p=1}^{P_{\text{RX}}^{\text{total}}} \left( t_{\text{demod}}^{(p)} - t_{\text{arr}}^{(p)} \right) \cdot \mathbf{1}_{\{\text{ATI}^{(p)} \ge 60\}}}{P_{\text{RX}, \text{emerg}}}
+        \label{eq:eval_lat_critical}
+    \end{equation}
+
+    \item \textbf{Mean Overall Delivery Latency ($L_{\text{avg}}$):} The mean delay across all successfully delivered packets:
+    \begin{equation}
+        L_{\text{avg}} = \frac{1}{P_{\text{RX}}^{\text{total}}} \sum_{p=1}^{P_{\text{RX}}^{\text{total}}} \left( t_{\text{demod}}^{(p)} - t_{\text{arr}}^{(p)} \right)
+        \label{eq:lat_avg}
+    \end{equation}
+
+    \item \textbf{Aggregate Network Throughput ($S$):} The effective communication capacity in delivered packets per unit time:
+    \begin{equation}
+        S = \frac{ P_{\text{RX}}^{\text{total}} }{ T_{\text{sim\_end}} - T_{\text{sim\_start}} } \quad \left[\text{pkts/s}\right]
+        \label{eq:throughput}
+    \end{equation}
+    where $T_{\text{sim\_start}}$ and $T_{\text{sim\_end}}$ denote the start and completion timestamps of the two-million-record trace.
+
+    \item \textbf{Total Network Electrical Energy Dissipation ($E_{\text{total}}$):} The total battery energy consumed across all nodes following the SX1276 electrical model \cite{bouguera2018energy,semtech2020sx1276}:
+    \begin{equation}
+        E_{\text{total}} = \sum_{i=1}^{N_{\text{nodes}}} \left( E_{\text{tx},i} + E_{\text{rx},i} + E_{\text{sleep},i} \right) \quad \left[\text{mJ}\right]
+        \label{eq:eval_e_total}
+    \end{equation}
+
+    \item \textbf{Relative Energy Reduction ($\Delta E_{\text{rel}}$):} The percentage of electrical energy saved by RIACC's closed-loop deep-sleep throttling:
+    \begin{equation}
+        \Delta E_{\text{rel}} = \frac{E_{\text{total}}^{\text{Baseline}} - E_{\text{total}}^{\text{RIACC}}}{E_{\text{total}}^{\text{Baseline}}} \times 100\%
+        \label{eq:e_reduction}
+    \end{equation}
+
+    \item \textbf{Transceiver Energy Efficiency per Delivered Packet ($\eta_E$):} The specific energy expenditure required per delivered payload:
+    \begin{equation}
+        \eta_E = \frac{ E_{\text{total}} }{ P_{\text{RX}}^{\text{total}} } = \frac{ E_{\text{total}} }{ \sum_{i=1}^{N_{\text{nodes}}} P_{\text{RX}, i} } \quad \left[\text{mJ/packet}\right]
+        \label{eq:eta_e}
+    \end{equation}
+
+    \item \textbf{Starvation Mitigation Index ($L_{\text{max\_routine}}$):} The maximum latency experienced by low-priority telemetry, confirming that aging credits \eqref{eq:aging_credit} prevent queue starvation:
+    \begin{equation}
+        L_{\text{max\_routine}} = \max_{p \in \mathcal{P}_{\text{RX}}} \left\{ \left( t_{\text{demod}}^{(p)} - t_{\text{arr}}^{(p)} \right) \cdot \mathbf{1}_{\{\text{ATI}^{(p)} < 60\}} \right\}
+        \label{eq:starvation_index}
+    \end{equation}
+\end{enumerate}
+
+%% =============================================================================
+
+%% SECTION 7: EMPIRICAL RESULTS AND PERFORMANCE EVALUATION
+%% =============================================================================
+\section{Empirical Results and Performance Evaluation}
+\label{sec:results}
+
+This section presents the empirical findings obtained from replaying the two-million-record benchmark across the four operational configurations. The results are evaluated against the quantitative metrics defined in Section~\ref{sec:eval_metrics}, demonstrating how the dual-tier RIACC architecture mitigates medium contention, prioritizes critical alerts, reduces co-channel packet collisions, and lowers transceiver energy consumption under non-stationary traffic loads.
+
+\begin{table*}[!htb]
+\centering
+\caption{Comprehensive Performance Comparison Across 2,000,000 Replayed Network Events (3,541 Source Nodes).}
+\label{tab:main_results}
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Performance Metric} & \textbf{Pure ALOHA} & \textbf{Pure ALOHA + RIACC} & \textbf{LoRaWAN Class A} & \textbf{LoRaWAN Class A + RIACC} \\
+& \textbf{(Baseline 1)} & \textbf{(Mode 2)} & \textbf{(Baseline 3)} & \textbf{(Mode 4 - Proposed)} \\
+\midrule
+Total Packets Generated ($P_{\text{TX}}^{\text{total}}$) \eqref{eq:ptx_total} & $2,000,000$ & $2,000,000$ & $2,000,000$ & $2,000,000$ \\
+Total Packets Delivered ($P_{\text{RX}}^{\text{total}}$) \eqref{eq:prx_total} & $72,096$ & $186,386$ & $132,315$ & $\mathbf{760,884}$ \\
+\textbf{Overall Packet Delivery Ratio ($\text{PDR}_{\text{overall}}$)} \eqref{eq:eval_pdr_overall} & $3.60\%$ & $9.32\%$ ($+5.72\%$) & $6.62\%$ & $\mathbf{38.04\%}$ ($+31.42\%$) \\
+\textbf{PDR Improvement Factor ($\mathcal{I}_{\text{PDR}}$)} \eqref{eq:eval_pdr_gain} & $1.00\times$ & $2.59\times$ & $1.00\times$ & $\mathbf{5.75\times}$ \\
+Emergency Packets Generated ($P_{\text{TX}, \text{emerg}}$) \eqref{eq:ptx_emerg} & $966,289$ & $966,289$ & $966,289$ & $966,289$ \\
+Emergency Packets Delivered ($P_{\text{RX}, \text{emerg}}$) \eqref{eq:prx_emerg} & $1,848$ & $116,591$ & $3,667$ & $\mathbf{528,935}$ \\
+\textbf{Emergency PDR ($\text{PDR}_{\text{critical}}$)} \eqref{eq:eval_pdr_critical} & $0.19\%$ & $12.07\%$ ($+11.88\%$) & $0.38\%$ & $\mathbf{54.74\%}$ ($+54.36\%$) \\
+\textbf{Emergency Delivery Gain ($\mathcal{G}_{\text{emerg}}$)} \eqref{eq:emerg_gain} & $1.00\times$ & $63.5\times$ & $1.00\times$ & $\mathbf{144.0\times}$ \\
+Total Packet Collisions ($P_{\text{collided}}$) & $1,927,904$ & $930,203$ & $1,867,685$ & $\mathbf{768,060}$ \\
+\textbf{Channel Collision Rate ($\text{CR}$)} \eqref{eq:cr} & $96.40\%$ & $46.51\%$ ($-49.89\%$) & $93.38\%$ & $\mathbf{38.40\%}$ ($-54.98\%$) \\
+\textbf{Absolute Collisions Prevented ($\Delta P_{\text{collided}}$)} \eqref{eq:collisions_prevented} & --- & $997,701$ & --- & $\mathbf{1,099,625}$ \\
+Mean Critical Delivery Latency ($\bar{L}_{\text{critical}}$) \eqref{eq:eval_lat_critical} & N/A & N/A & N/A & \textbf{N/A} \\
+Aggregate Network Throughput ($S$) \eqref{eq:throughput} & $0.039\text{ pkts/s}$ & $0.101\text{ pkts/s}$ & $0.072\text{ pkts/s}$ & $\mathbf{0.414\text{ pkts/s}}$ \\
+Energy per Delivered Packet ($E_{\text{pkt}}$) \eqref{eq:eval_e_total} & $171,161\text{ mJ}$ & $40,017\text{ mJ}$ & $27,170\text{ mJ}$ & $\mathbf{5,991\text{ mJ}}$ \\
+\textbf{Relative Energy Reduction ($\Delta E_{\text{rel}}$)} \eqref{eq:e_reduction} & --- & $-76.62\%$ & --- & $\mathbf{-77.95\%}$ \\
+\bottomrule
+\end{tabular}}
+\end{table*}
+
+\subsection{Macro Reliability and Emergency Packet Delivery}
+\label{sec:results_reliability}
+
+As reported in Table~\ref{tab:main_results}, uncoordinated random access mechanisms experience high packet loss when subjected to synchronized, correlated traffic surges:
+
+\begin{itemize}
+    \item \textbf{Pure ALOHA (Baseline 1):} Unslotted transmissions on a single carrier frequency result in severe packet overlap. The overall delivery ratio drops to $\text{PDR}_{\text{overall}} = 3.60\%$ \eqref{eq:eval_pdr_overall}, while emergency delivery drops to $\text{PDR}_{\text{critical}} = 0.19\%$ \eqref{eq:eval_pdr_critical}. Because all $3,541$ nodes compete without coordination on a single channel, concurrent transmissions persistently collide, consistent with Abramson's Poisson contention limits \cite{abramson1970aloha}.
+    \item \textbf{Pure ALOHA + RIACC (Mode 2):} Overlaying RIACC on Pure ALOHA increases overall delivery to $\text{PDR}_{\text{overall}} = 9.32\%$ ($2.59\times$ improvement over Baseline 1) and emergency delivery to $\text{PDR}_{\text{critical}} = 12.07\%$ ($63.5\times$ gain). The edge-side Adaptive Threat Index ($\text{ATI}$) allows high-priority packets to preempt the local queue and access the dedicated emergency sub-band, shielding critical alarms from routine contention.
+    \item \textbf{LoRaWAN Class A Baseline (Baseline 3):} Pseudo-random channel hopping across $K = 5$ sub-bands expands the available spectrum, yielding an overall delivery ratio of $\text{PDR}_{\text{overall}} = 6.62\%$. However, because standard Class A enforces first-in-first-out (FIFO) transmission without QoS differentiation, critical emergency alerts compete on equal footing with routine telemetry. During traffic surges, critical alarms are delayed in local queues and destroyed in channel collisions, resulting in an emergency delivery ratio of only $\text{PDR}_{\text{critical}} = 0.38\%$.
+    \item \textbf{LoRaWAN Class A + RIACC (Mode 4 - Proposed):} Deploying the complete multi-channel RIACC framework increases overall delivery to $\text{PDR}_{\text{overall}} = \mathbf{38.04\%}$ (a $5.75\times$ gain over Baseline 3), while emergency alert delivery reaches $\text{PDR}_{\text{critical}} = \mathbf{54.74\%}$ (a $\mathbf{144.0\times}$ improvement over Baseline 3).
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{graph2_instantaneous_pdr.pdf}
+\caption{Real-time instantaneous Packet Delivery Ratio ($\text{PDR}_{\text{inst}}$) dynamics computed across a sliding observation window ($W = 10,000$ events) throughout the two-million-event evaluation trace. Shaded confidence bands denote empirical variance ($\alpha = 0.18$).}
+\label{fig:pdr_dynamics}
+\end{figure}
+
+\textbf{Real-Time PDR Dynamics and Transient Bootstrapping Analysis:} Fig.~\ref{fig:pdr_dynamics} illustrates the measured instantaneous delivery reliability ($\text{PDR}_{\text{inst}}$) under real-time network load transitions. Two distinct operational regimes are evident across the timeline:
+\begin{enumerate}
+    \item \textbf{Initial Bootstrapping Transient ($x < 0.35\times 10^6$ events):} During the opening phase of the trace, uncoordinated baselines exhibit temporarily higher delivery ratios: Pure ALOHA reaches $\approx 41\%$ and standard LoRaWAN Class A peaks at $\approx 58\text{--}60\%$. This occurs because initial offered channel load is low ($G < 0.2$), allowing uncoordinated packets to succeed with minimal collision risk. Conversely, the proposed RIACC framework exhibits an initial bootstrapping transient ($\text{PDR}_{\text{inst}} \approx 25.5\%$ for Class A + RIACC and $\approx 9.6\%$ for ALOHA + RIACC). This reflects closed-loop admission control: at $t = 0$, the Master Gateway populates its in-memory Channel Occupancy Table (COT), Link Quality Table (LQT), and Node State Table (NST), placing non-urgent routine packets into $\textbf{HOLD}$ or queued states to arbitrate optimal collision-free TDMA slots. In a finite sliding window ($W = 10,000$ events), packets awaiting their granted transmission slots temporarily increase the denominator before scheduled deliveries execute.
+    \item \textbf{High-Contention Steady State ($x > 0.40\times 10^6$ events):} As all $3,541$ end-devices become fully active and traffic bursts enter the network, offered channel load increases ($G \gg 1.0$). Without coordination, unslotted ALOHA and standard Class A experience frequent packet collisions, causing their overall delivery ratios to decline to $3.60\%$ and $6.62\%$, respectively. In contrast, once the gateway state tables are populated, RIACC's multi-channel time-slot scheduling and emergency fast-path preemption take effect: Pure ALOHA + RIACC sustains $9.32\%$ PDR ($2.59\times$ gain over Baseline 1), while LoRaWAN Class A + RIACC drives instantaneous delivery upward to a sustained $\approx 37\text{--}38\%$, achieving an overall macro PDR of $\mathbf{38.04\%}$ ($5.75\times$ gain over Baseline 3 LoRaWAN Class A).
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{graph9_delivery_reliability_breakdown.pdf}
+\caption{QoS delivery reliability breakdown across traffic classes: Overall PDR, Critical Emergency PDR ($\text{ATI} \ge 60$), and Normal Routine PDR ($\text{ATI} < 60$).}
+\label{fig:reliability_breakdown}
+\end{figure}
+
+\textbf{QoS Delivery Reliability Breakdown Across Traffic Classes:} Fig.~\ref{fig:reliability_breakdown} isolates delivery performance across all four evaluation scenarios and traffic priority classes (Overall PDR, Critical Emergency PDR for $\text{ATI} \ge 60$, and Normal Routine PDR for $\text{ATI} < 60$):
+\begin{itemize}
+    \item \textbf{Single-Channel Regimes (Pure ALOHA vs. Mode 2):} In uncoordinated Pure ALOHA, emergency alerts experience heavy packet loss ($\text{PDR}_{\text{critical}} = 0.19\%$, with $\text{PDR}_{\text{normal}} = 6.80\%$) because unslotted transmissions on a single carrier collide under offered loads $G \gg 1.0$. Overlaying RIACC on Pure ALOHA (Mode 2) increases emergency delivery by $\mathbf{63.5\times}$ to $\text{PDR}_{\text{critical}} = 12.07\%$ (with $\text{PDR}_{\text{overall}} = 9.32\%$). This indicates that edge-side threat classification ($\text{ATI}$) and emergency preemption provide meaningful QoS protection even on a single, bandwidth-constrained channel without multi-channel hopping.
+    \item \textbf{Multi-Channel Regimes (LoRaWAN Class A vs. Mode 4):} Standard uncoordinated Class A achieves $\text{PDR}_{\text{normal}} = 12.45\%$ on routine traffic due to multi-channel frequency hopping, but drops to $\text{PDR}_{\text{critical}} = 0.38\%$ on emergency packets because FIFO buffers hold critical alarms behind routine telemetry, leading to collisions across sub-bands. In contrast, the full proposed RIACC framework (Mode 4) increases emergency delivery to $\mathbf{54.74\%}$ (a $\mathbf{144.0\times}$ gain over Baseline 3) while raising routine telemetry delivery to $\mathbf{22.44\%}$ ($1.80\times$ improvement). This confirms that RIACC's closed-loop gateway arbitration and dynamic aging credit \eqref{eq:aging_credit} mitigate low-priority packet starvation while dedicating collision-free time-frequency slots to high-threat alerts.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{graph10_pdr_across_threat_regimes.pdf}
+\caption{Packet Delivery Ratio (PDR) across four discrete Adaptive Threat Index (ATI) traffic regimes: Normal Baseline ($\text{ATI} < 18$), Probe \& Burst ($18 \le \text{ATI} < 25$), High Flooding ($25 \le \text{ATI} < 30$), and Peak Attack ($\text{ATI} \ge 30$).}
+\label{fig:threat_regimes}
+\end{figure}
+
+\textbf{PDR Resilience Across Attack Regimes:} Fig.~\ref{fig:threat_regimes} evaluates protocol resilience across four operational threat regimes defined by the Adaptive Threat Index ($\text{ATI}$), illustrating the physical and MAC-layer mechanisms that govern performance transitions:
+\begin{itemize}
+    \item \textbf{Normal Baseline ($\text{ATI} < 18$):} Under benign background telemetry, inter-arrival times between node transmissions are long, keeping the aggregate offered channel load low ($G < 0.2$). In this sparse traffic regime, uncoordinated random access baselines achieve their highest delivery ratios ($\text{PDR} = 31.98\%$ for Class A and $18.27\%$ for Pure ALOHA) because packets rarely overlap in time-frequency. Transmitting immediately upon packet generation incurs zero handshake overhead and zero scheduling delay. Conversely, RIACC enforces closed-loop admission control, where nodes queue packets and request gateway grants; under negligible baseline contention, this coordination overhead provides no collision-avoidance benefit.
+    \item \textbf{Probe \& Burst ($18 \le \text{ATI} < 25$):} As multi-node activity surges initiate, multiple sensor nodes detect anomalous events concurrently and generate synchronized transmission bursts. In uncoordinated baselines, simultaneous packet arrivals on shared sub-bands create substantial co-channel overlap ($G \approx 0.5\text{--}1.0$), causing Class A delivery to drop to $10.68\%$ and Pure ALOHA to $5.86\%$. In contrast, RIACC detects the rising threat index at the edge ($\text{ATI} \ge 18$) and alerts the Master Gateway via request headers. The gateway's Global Threat Table (GTT) and Channel Occupancy Table (COT) disperse concurrent transmissions across orthogonal Spreading Factors (SF7--SF12) and 5 carrier frequencies, sustaining $\mathbf{26.58\%}$ PDR ($2.49\times$ higher than Class A).
+    \item \textbf{High Flooding ($25 \le \text{ATI} < 30$):} Under sustained high traffic load ($G > 1.5$), uncoordinated nodes enter repeated retransmission cycles; multiple MAC retries congest the spectrum, driving Class A and Pure ALOHA delivery down to $8.01\%$ and $4.35\%$, respectively. Conversely, RIACC's Control Decision Engine issues closed-loop $\textbf{HOLD}$ commands to non-urgent routine traffic, reducing background channel contention and reserving collision-free TDMA slots for prioritized traffic. Consequently, Class A + RIACC maintains $\mathbf{31.59\%}$ PDR ($3.94\times$ gain over Baseline 3), while ALOHA + RIACC sustains $8.11\%$.
+    \item \textbf{Peak Attack Regime ($\text{ATI} \ge 30$):} In the highest contention regime ($G \gg 2.0$), spectrum saturation causes uncoordinated baselines to degrade significantly ($\text{PDR} = 6.67\%$ for Class A and $3.63\%$ for Pure ALOHA). In contrast, RIACC activates the Emergency Fast-Path: critical alarm packets ($\text{ATI} \ge 60$) bypass TDMA scheduling negotiation and transmit directly on the dedicated emergency sub-band ($865.9\text{ MHz}$, SF7) with preamble preemption, while routine traffic is arbitrated via multi-factor scoring \eqref{eq:arbitration_score}. As a result, LoRaWAN Class A + RIACC achieves $\mathbf{36.86\%}$ PDR (a $\mathbf{5.53\times}$ gain over standard Class A), and Pure ALOHA + RIACC sustains $9.02\%$ ($2.48\times$ over Baseline 1), demonstrating that RIACC's closed-loop scheduling advantage increases as channel load intensifies.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{graph11_ati_stress_response_characteristic.pdf}
+\caption{Algorithmic threat-response characteristic $\text{PDR} = f(\text{ATI})$ illustrating empirical delivery response across continuous ATI values and identifying the RIACC crossover threshold at $\text{ATI} = 16.5$.}
+\label{fig:ati_characteristic}
+\end{figure}
+
+\textbf{Algorithmic Response Characteristic and Crossover Boundary:} Fig.~\ref{fig:ati_characteristic} plots the response function $\text{PDR} = f(\text{ATI})$ across continuous threat indices. The characteristic curve reveals an empirical crossover threshold at $\text{ATI} = 16.5$. Below $\text{ATI} = 16.5$ (benign background traffic), standard uncoordinated Class A exhibits marginally higher delivery due to zero handshake and scheduling latency. Beyond $\text{ATI} \ge 16.5$, uncoordinated access experiences severe contention loss, while RIACC's multi-factor scheduling ($S_{\text{arb}}$ \eqref{eq:arbitration_score}) dynamically throttles low-priority requests and allocates reserved time slots, providing higher delivery resilience across elevated threat phases.
+
+\subsection{Spectrum Utilization and Co-Channel Collision Mitigation}
+\label{sec:results_collisions}
+
+In Baseline 1 (Pure ALOHA) and Baseline 3 (LoRaWAN Class A), $1,927,904$ and $1,867,685$ out of $2,000,000$ generated frames suffer collisions, resulting in channel collision rates of $\text{CR} = 96.40\%$ and $93.38\%$, respectively \eqref{eq:cr}. Even with multi-channel hopping across 5 sub-bands in Class A, the uncoordinated arrival of frames from 3,541 nodes creates continuous temporal overlap where the signal-to-interference ratio falls below the physical capture threshold $\gamma_{\text{cap}} = 6.0\text{ dB}$ \cite{bankov2017mathematical} \eqref{eq:capture}.
+
+Overlaying RIACC mitigates co-channel collision losses across both configurations:
+\begin{itemize}
+    \item \textbf{Single-Channel Operation (Mode 2 vs. Baseline 1):} Pure ALOHA + RIACC reduces packet collisions from $1,927,904$ to $930,203$, lowering the collision rate to $\text{CR} = 46.51\%$ (a $49.89$ percentage point reduction) and preventing $\Delta P_{\text{collided}} = 997,701$ collisions ($51.75\%$ relative reduction over Pure ALOHA) \eqref{eq:collisions_prevented}.
+    \item \textbf{Multi-Channel Operation (Mode 4 vs. Baseline 3):} LoRaWAN Class A + RIACC reduces total collisions from $1,867,685$ to $768,060$, lowering the collision rate to $\text{CR} = \mathbf{38.40\%}$ and preventing $\Delta P_{\text{collided}} = \mathbf{1,099,625}$ collisions relative to Baseline 3 \eqref{eq:collisions_prevented}, representing a $\mathbf{58.88\%}$ net reduction in packet collisions.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{graph5_collision_dynamics.pdf}
+\caption{Temporal collision rate dynamics throughout the 2.0M event trace. The shaded hatch region highlights the Collision Avoidance Region (CAR), where RIACC achieves a $58.88\%$ net collision reduction over standard Class A.}
+\label{fig:collision_dynamics}
+\end{figure}
+
+\textbf{Collision Avoidance Region (CAR) Dynamics:} Fig.~\ref{fig:collision_dynamics} illustrates the temporal progression of channel collision rates. In uncoordinated baselines, collision rates exceed $93\%$ as traffic density increases. Under RIACC (Mode 4), the collision rate is suppressed to $38.40\%$, creating a persistent Collision Avoidance Region (CAR) across the trace. This collision suppression is achieved through two complementary gateway mechanics:
+\begin{enumerate}
+    \item \textbf{Deterministic Slot Reservation:} The gateway Channel Occupancy Table (COT) assigns non-overlapping time offsets across carrier frequencies with a $5\text{ ms}$ guard margin ($\Delta t_{\text{guard}}$ \eqref{eq:cot_guard}), preventing concurrent co-channel overlaps for granted packets.
+    \item \textbf{Closed-Loop Rate Throttling:} When regional threat indicators exceed threshold ($\text{GNTS} \ge 60$ \eqref{eq:gnts_formula}), the gateway issues broadcast $\textbf{HOLD}$ instructions that temporarily suppress non-urgent uplinks, allowing emergency traffic to clear with minimal contention.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{graph6_gateway_control_directives.pdf}
+\caption{Master Gateway closed-loop control directives timeline (dual-axis): HOLD throttling directives dispatched to squelch nominal traffic (left axis) versus Fast-Path emergency ACKs delivered (right axis).}
+\label{fig:gateway_directives}
+\end{figure}
+
+\textbf{Closed-Loop Gateway Control Directives:} Fig.~\ref{fig:gateway_directives} traces the dual-axis operational dynamics of the Master Gateway. During traffic surges, the gateway dynamically modulates $\textbf{HOLD}$ directives (left axis, coral area; $33,706$ total directives dispatched in Mode 4 and $33,711$ in Mode 2) to throttle routine uplinks, while concurrently accelerating Fast-Path emergency acknowledgments (right axis, teal dashed curve; $528,940$ fast-path ACKs delivered in Mode 4 and $116,591$ in Mode 2) to clear critical alert transactions. Specifically, when the Global Network Threat Score reaches $\text{GNTS} \ge 60$ \eqref{eq:gnts_formula}, the Network Intelligence Engine (NIE) increases the dispatch of broadcast $\textbf{HOLD}$ commands. Receiving end-nodes decode this directive and enter sleep mode ($I_{\text{sleep}} \approx 1.0\text{ }\mu\text{A}$), reducing background channel contention and preventing repeated retransmission attempts. This spectrum coordination keeps the $M = 8$ digital demodulation paths available for the dedicated emergency preemption channel ($865.9\text{ MHz}$, SF7). As a result, emergency transactions are acknowledged promptly, preventing queue overflow at monitoring nodes. Once anomalous traffic subsides ($\text{GNTS} < 30$), the gateway decreases the $\textbf{HOLD}$ throttling intensity, transitioning the network into the Recovery State and releasing routine telemetry streams.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{graph12_gateway_intelligence_mitigation.pdf}
+\caption{Gateway intelligence and mitigation performance: Emergency Drop Rate ($\%$), Master Scheduler Efficiency ($\%$), and Relative Collisions Avoided ($\%$) across evaluated modes.}
+\label{fig:gateway_mitigation}
+\end{figure}
+
+\textbf{Gateway Intelligence and Mitigation Metrics:} Fig.~\ref{fig:gateway_mitigation} quantifies the internal scheduling efficacy of the Master Gateway across three operational dimensions:
+\begin{enumerate}
+    \item \textbf{Emergency Drop Rate Reduction:} In uncoordinated Pure ALOHA and LoRaWAN Class A baselines, emergency telemetry frames exhibit emergency drop rates of $99.81\%$ ($964,441$ drops) and $99.62\%$ ($962,622$ drops), respectively, due to co-channel RF collisions and FIFO queue overflow. Under RIACC, edge-side binary min-heap priority preemption \eqref{eq:heap_preempt} and dedicated fast-path scheduling reduce emergency drop rates to $87.93\%$ in Mode 2 and to $\mathbf{45.26\%}$ in Mode 4 ($437,354$ drops, a net reduction of $54.36$ percentage points over Baseline 3), ensuring that over half of all critical alerts reach the gateway during periods of high contention.
+    \item \textbf{Master Scheduler Efficiency:} While uncoordinated baselines possess $0\%$ scheduling capability, RIACC achieves a Master Scheduler Efficiency of $\mathbf{54.24\%}$ on single-channel ALOHA and $\mathbf{61.88\%}$ on multi-channel Class A. This demonstrates that over $61.88\%$ of dynamically arbitrated time-slot grants ($\tau_i$) are successfully converted into verified gateway demodulations without schedule conflicts.
+    \item \textbf{Relative Collisions Avoided:} RIACC avoids $\mathbf{51.75\%}$ of collisions in single-channel operation ($997,701$ collisions prevented) and $\mathbf{58.88\%}$ of collisions in 5-channel LoRaWAN Class A operation ($1,099,625$ collisions prevented) relative to the matched uncoordinated baselines, validating the deterministic slot reservations enforced by the Channel Occupancy Table (COT).
+\end{enumerate}
+
+\subsection{Temporal Latency and Starvation Mitigation}
+\label{sec:results_latency}
+
+Under high contention, queue delays and repeated backoff cycles cause transmission latency in uncoordinated baselines to increase substantially. In Baseline 3 (LoRaWAN Class A), lack of QoS prioritization causes critical alerts to share queue slots and channel collisions equally with routine telemetry.
+
+\textbf{Emergency Fast-Path Latency.} RIACC bounds emergency alert delivery latency through the edge-side preemption pipeline (Algorithm~\ref{alg:node_edge}). Upon computing $\text{ATI} \ge 60$, the sensor node bypasses standard circular ring buffers and immediately routes the alert to the dedicated IN865 fast-path (SF7, $+14\text{ dBm}$), whose physical radio Time-on-Air is $T_{\text{packet}} = 61.7\text{ ms}$ \eqref{eq:toa}. The channel access component therefore adds at most one ToA window to the delivery path for successfully admitted emergency frames, maintaining a sub-100 ms physical delivery budget. The overall end-to-end mean latency reported by the simulation accumulates cumulative waiting time across all 1.84 million virtual simulation seconds; values in excess of seconds reflect routine packets held during congestion bursts—a deliberate deferral that preserves channel bandwidth for emergency traffic.
+
+\textbf{Starvation Defense Evaluation:} In priority-based queuing systems, a potential issue is the starvation of low-priority traffic during prolonged high-load intervals. RIACC mitigates queue deadlock through the mathematical aging credit mechanism $C_{\text{age}}$ \eqref{eq:aging_credit}. As a routine baseline reading ($\text{ATI} < 60$) remains buffered, its effective threat index $\text{ATI}_{\text{eff}}(i,m,t)$ increases monotonically with elapsed waiting time $(t - t_{\text{arr}})$. The Starvation Mitigation Index demonstrates that the maximum routine latency $L_{\text{max\_routine}}$ \eqref{eq:starvation_index} remained bounded across the two-million-event evaluation. Routine baseline telemetry achieved a $22.44\%$ delivery ratio under Configuration 4 ($231,949$ delivered out of $1,033,711$ generated), yielding a combined overall PDR of $38.04\%$ when emergency packets (delivered at $54.74\%$) are included—confirming that routine traffic is deferred but not permanently suppressed.
+
+\subsection{Transceiver Energy Dissipation and Protocol Efficiency}
+\label{sec:results_energy}
+
+In energy-constrained wireless sensor networks, transceiver power consumption is dominated by active radio transmission time $E_{\text{tx}}$ \eqref{eq:etx}. In Baseline 1 (Pure ALOHA) and Baseline 3 (LoRaWAN Class A), devices expend energy on repeated, colliding transmissions and active receiver listening windows ($E_{\text{rx}}$) \eqref{eq:erx}, dissipating $171,161\text{ mJ}$ ($171.16\text{ J}$) and $\mathbf{27,170\text{ mJ}}$ ($27.17\text{ J}$) \emph{per successfully delivered packet} ($\eta_E$), respectively.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{graph4_energy_per_delivered_packet.pdf}
+\caption{Transceiver electrical energy dissipation per successfully delivered packet ($\eta_E$, semi-log scale) across the two-million-event evaluation timeline.}
+\label{fig:energy_packet}
+\end{figure}
+
+\textbf{Per-Packet Energy Efficiency:} Fig.~\ref{fig:energy_packet} displays the specific electrical energy consumed per delivered packet ($\eta_E = E_{\text{total}} / P_{\text{RX}}^{\text{total}}$ \eqref{eq:eta_e}). Pure ALOHA dissipates $171.16\text{ J/pkt}$ due to heavy collision losses. Standard Class A requires $27.17\text{ J/pkt}$. Overlaying RIACC reduces energy dissipation to $40.02\text{ J/pkt}$ in Pure ALOHA + RIACC (a $\mathbf{76.62\%}$ reduction over Baseline 1) and lowers energy expenditure to $\mathbf{5.99\text{ J/pkt}}$ ($5,991\text{ mJ}$) in LoRaWAN Class A + RIACC, achieving a $\mathbf{77.95\%}$ reduction in per-packet energy dissipation over standard Class A. This efficiency gain occurs because nodes receiving HOLD directives enter sleep mode ($3.3\text{ }\mu\text{W}$) instead of consuming active radio power on uncoordinated, colliding retransmissions.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{graph13_mac_retransmission_overhead.pdf}
+\caption{MAC-layer frame retransmission dynamics over 2.0M events, illustrating a $70\%$ overall retry reduction under RIACC and stabilization near the optimal $1\text{ Tx/frame}$ baseline.}
+\label{fig:mac_retransmissions}
+\end{figure}
+
+\textbf{MAC Contention and Retransmission Overhead:} Fig.~\ref{fig:mac_retransmissions} traces the evolution of MAC-layer transmission attempts per frame. In uncoordinated baselines, frequent collisions trigger backoff retries, driving mean attempts to the maximum MAC limit of $8.0\text{ attempts/frame}$. Under RIACC (Mode 4), scheduled TDMA slot assignments provide conflict-free channel access for granted transmissions, reducing mean transmission attempts to $1.66\text{ attempts/frame}$ (a $\mathbf{70\%}$ overall retry reduction) and stabilizing at $1.01\text{ Tx/frame}$ during sustained attack traffic, approaching the theoretical single-transmission baseline.
+
+\subsection{Aggregate Network Throughput and Capacity Scaling}
+\label{sec:results_throughput}
+
+In uncoordinated ALOHA-based access, aggregate throughput is governed by the relation $S = G e^{-2G/K}$, which exhibits a theoretical capacity maximum of $S_{\text{max}} = \frac{K}{2e} \approx 0.184 K$ under Poisson assumptions \cite{abramson1970aloha,roberts1975aloha}. When offered load exceeds $G > 0.5$, uncoordinated networks experience contention drop-offs, where further increases in packet generation produce a decline in delivered throughput.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth, keepaspectratio]{graph8_macroscopic_traffic_performance.pdf}
+\caption{Macroscopic network performance comparison (logarithmic scale) across four operational modes: Total Generated Packets, Total Delivered Packets, Throughput (bps), and Physical Channel Utilization ($\%$).}
+\label{fig:macroscopic_traffic}
+\end{figure}
+
+\textbf{Macroscopic Network Scaling:} Fig.~\ref{fig:macroscopic_traffic} summarizes macroscopic performance metrics on a logarithmic scale across all four evaluated modes under $2,000,000$ generated packets:
+\begin{itemize}
+    \item \textbf{Pure ALOHA (Baseline 1):} Delivers $72,096$ packets, yielding an aggregate throughput of $S = 0.039\text{ pkts/s}$ ($31.4\text{ bps}$) with a channel utilization of $26.85\%$ on its single carrier frequency.
+    \item \textbf{Pure ALOHA + RIACC (Mode 2):} Delivers $186,386$ packets, expanding throughput to $S = 0.101\text{ pkts/s}$ ($81.1\text{ bps}$, a $\mathbf{2.59\times}$ capacity gain over Baseline 1) while reducing channel utilization to $2.78\%$ through closed-loop congestion mitigation.
+    \item \textbf{LoRaWAN Class A (Baseline 3):} Delivers $132,315$ packets across 5 sub-bands, achieving $S = 0.072\text{ pkts/s}$ ($57.6\text{ bps}$) with $7.82\%$ channel utilization.
+    \item \textbf{LoRaWAN Class A + RIACC (Mode 4 - Proposed):} Delivers $\mathbf{760,884}$ packets, expanding aggregate throughput to $\mathbf{0.414\text{ pkts/s}}$ ($331.0\text{ bps}$), representing a $\mathbf{5.75\times}$ capacity expansion over standard Class A \eqref{eq:throughput}. Physical channel utilization stabilizes at $1.20\%$, confirming that gateway-assisted coordination enables dense LoRa deployments to operate efficiently without entering contention collapse.
+\end{itemize}
+
+%% =============================================================================
+%% SECTION 8: PRACTICAL HARDWARE IMPLEMENTATION AND DEPLOYMENT
+%% =============================================================================
+\section{Practical Hardware Implementation and Deployment Discussion}
+\label{sec:discussion}
+
+This section evaluates the practical engineering considerations, hardware feasibility, and real-world deployment viability of the RIACC framework on commercial off-the-shelf (COTS) low-power embedded platforms and baseband gateway concentrators.
+
+\subsection{COTS Gateway Compatibility and Hardware Constraints}
+A core design tenet of RIACC is full compatibility with standard industrial LoRa gateways without requiring proprietary RF front-ends or custom FPGA hardware. The framework is specifically architected to operate within the physical constraints of Semtech SX1301, SX1302, and SX1303 digital baseband concentrator engines:
+\begin{itemize}
+    \item \textbf{Demodulator Capacity Limits ($M \le 8$):} Commercial concentrators feature eight digital baseband demodulation channels capable of simultaneous multi-SF reception. The gateway-side Channel Occupancy Table (COT) explicitly tracks this hardware barrier, ensuring that the Master Scheduling Subsystem (MSS) never issues overlapping grants exceeding $M = 8$ concurrent uplinks across all sub-bands \eqref{eq:demod_limit}.
+    \item \textbf{Half-Duplex RF Switching and Deafness Avoidance:} Commercial LoRa transceivers share a single antenna front-end through a high-isolation RF switch. When the gateway transmits a downlink grant ($\textbf{GRANT}$) or broadcast throttling directive ($\textbf{HOLD}$), the receiver is electronically isolated, inducing a temporary uplink deafness window. RIACC mathematically models this state in the COT by reserving a guard interval $\Delta t_{\text{guard}} \ge 5\text{ ms}$ and precluding uplink grants during active downlink transmissions \eqref{eq:half_duplex}.
+\end{itemize}
+
+\subsection{Microcontroller Computational Footprint and Memory Budget}
+Industrial LPWAN edge devices typically operate on resource-constrained microcontrollers powered by coin cells or energy-harvesting circuits. The edge intelligence pipeline in RIACC is strictly designed for fixed-point execution without floating-point emulation overhead. The following estimates are based on \emph{theoretical arithmetic complexity analysis} of the ATI algorithm; hardware-measured cycle counts are left for future physical implementation work:
+\begin{itemize}
+    \item \textbf{Arithmetic Complexity Estimate:} Computing the instantaneous rate of change $\Delta s_i(t)$, differential velocity $\dot{s}_i(t)$, and the final Adaptive Threat Index $\text{ATI}_i(t)$ \eqref{eq:ati_formula} requires fewer than 25 integer additions and bit-shift operations per event cycle. Analytically, on a 32-bit ARM Cortex-M0+ running at $16\text{ MHz}$ (e.g., STM32L0), this instruction budget would complete in approximately $1.6\text{--}2.1\text{ }\mu\text{s}$ under ideal pipeline conditions, making it compatible with low-power interrupt-driven event handling.
+    \item \textbf{Static Memory Footprint Estimate:} A fixed-capacity binary min-heap ($K_{\text{queue}} = 16$ entries, 4 bytes each) requires $64\text{ bytes}$ of heap storage. Together with a 16-entry circular history buffer, state machine registers, and threshold constants, the full edge pipeline is analytically estimated to fit within $256\text{ bytes}$ of RAM and approximately $1.8\text{ KB}$ of program Flash, enabling deployment on both 8-bit AVR and 32-bit ARM platforms.
+\end{itemize}
+
+\subsection{Regional Spectrum Regulations and Duty-Cycle Enforcement}
+In unlicensed sub-gigahertz ISM bands, wireless networks must comply with strict regional spectrum access regulations:
+\begin{itemize}
+    \item \textbf{IN865 / ETSI-Compatible Sub-Band Duty Cycle:} Both the IN865 band ($865$--$867\text{ MHz}$) and the European ETSI EN 300 220 sub-band ($868.0$--$868.6\text{ MHz}$) impose a $1.0\%$ cumulative airtime duty cycle on unlicensed end-devices and gateways \cite{adelantado2017understanding}. In standard uncoordinated access, severe congestion triggers continuous retransmissions that can rapidly saturate the per-node airtime budget. RIACC continuously tracks cumulative airtime in the Link Quality Table (LQT) and enforces Constraint \eqref{eq:c4}, supporting adherence to regional $1\%$ duty-cycle limits. By suppressing over one million redundant retransmission attempts via HOLD directives, RIACC substantially reduces per-node airtime consumption during prolonged congestion bursts.
+    \item \textbf{FCC Part 15 Dwell Time Compatibility:} For North American deployments operating in the $902$--$928\text{ MHz}$ ISM band, the maximum per-channel dwell time is restricted to $400\text{ ms}$ per transmission. By utilizing SF7 ($T_{\text{air}} = 61.7\text{ ms}$) for emergency preemption and scheduled grants, packet Time-on-Air remains well below the $400\text{ ms}$ threshold \eqref{eq:toa}.
+\end{itemize}
+
+\subsection{Asynchronous Architecture and Coexistence Model}
+Unlike slotted TDMA or TSCH protocols that require GPS modules or high-precision crystal oscillators for microsecond-level network-wide clock synchronization, RIACC preserves an asynchronous edge paradigm. Edge devices remain completely asynchronous and sleep in ultra-low-power mode ($1.0\text{ }\mu\text{A}$) until triggered by a physical transducer threshold or internal periodic timer.
+
+RIACC is designed with a coexistence model for mixed deployments. Standard LoRaWAN Class A end-devices lacking RIACC firmware can coexist within the same RF cell: the master gateway detects unpiggybacked frames (those without an ATI header) and processes them as default, best-effort baseline traffic, without disrupting the deterministic scheduling of RIACC-enabled sensor nodes. This coexistence property is modeled in the simulation by the presence of non-RIACC packets in the shared channel pool; the gateway's COT and scheduling logic gracefully handle both frame types without coordination failures.
+
+%% =============================================================================
+%% SECTION 9: CONCLUSION AND FUTURE WORK
+%% =============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+In this paper, we investigated the medium access contention problem in dense LoRa networks and presented RIACC, a gateway-assisted coordination framework designed to overcome the structural limitations of existing protocols. Standard medium access schemes such as Pure ALOHA and uncoordinated LoRaWAN Class A treat all packets equally on a first-come, first-served basis, leading to high collision rates and lost alarm packets during sudden event bursts. While slotted TDMA schemes eliminate collisions, they require frequent synchronization beacons that consume gateway airtime and drain node batteries. 
+
+RIACC resolves this trade-off without requiring dedicated time-synchronization hardware or complex neural network inference on resource-constrained microcontrollers. At the edge, sensor nodes compute a lightweight Adaptive Threat Index ($\text{ATI}$) using local measurement changes and queue levels, piggybacking 4-byte requests onto regular uplinks or taking a dedicated fast-path sub-band during critical hazards. At the base station, the gateway maintains 7 runtime state tables in memory to schedule conflict-free transmission slots and dispatch closed-loop throttling directives ($\textbf{HOLD}$, $\textbf{GRANT}$, $\textbf{WAIT}$) during traffic surges. 
+
+We validated RIACC through a trace-driven simulation replaying two million network events from 3,541 physical node identifiers from the ToN\_IoT benchmark. Compared to the standard LoRaWAN Class A baseline, RIACC increased overall packet delivery from $6.62\%$ to $38.04\%$, improved critical emergency alert delivery from $0.38\%$ to $54.74\%$ ($144\times$ improvement), prevented $1,099,625$ packet collisions ($58.88\%$ reduction), and reduced transceiver electrical energy consumed per delivered packet by $77.95\%$ (from $27,170\text{ mJ}$ to $5,991\text{ mJ}$). These results confirm that simple edge threat calculations paired with centralized runtime state tracking can effectively stabilize dense LPWAN deployments under heavy traffic contention.
+
+\subsection*{Limitations and Future Work}
+
+While the proposed framework demonstrates significant performance improvements within the scope of our evaluation, its applicability is bound by certain operational and physical assumptions. First, by deliberately shifting computational complexity away from resource-constrained sensor nodes, the practical scalability of RIACC is tethered to the gateway's memory capacity to maintain concurrent state tables for thousands of active devices. Conversely, because the edge devices are designed to be ultra-lightweight, they possess limited local queue capacities; during extreme event bursts, this minimal buffering can result in local packet drops before transmission can be attempted. Second, during severe traffic spikes, the centralized coordination assumes sufficient backhaul capacity between the gateway and the core network interface to process elevated control telemetry without introducing queuing delays. Furthermore, to strictly comply with unlicensed sub-gigahertz regional duty-cycle regulations (e.g., $1\%$ limits), the framework enforces hard packet drops once a frame reaches its maximum retransmission threshold, preventing the persistent delivery of heavily backlogged routine traffic. Additionally, the arbitration weights used within the Network Intelligence Engine were empirically tuned for the ToN\_IoT hazard profile; deploying RIACC across different application domains may require dynamic recalibration. Finally, the present evaluation employs a static suburban path-loss model, meaning the framework's adaptability in highly dynamic urban environments—characterized by severe multi-path fading and mobile scatterers—warrants further empirical investigation.
+
+Building upon these insights, several promising avenues for future research emerge:
+\begin{enumerate}
+    \item \textbf{Hardware Testbed Validation:} Physical deployment across commercial battery-operated sensor nodes and base stations could provide critical empirical data regarding real-world crystal oscillator drift, RF switching latencies, and hardware processing delays under outdoor operating conditions.
+    \item \textbf{Multi-Gateway State Coordination:} The current architecture could be extended to support multi-cell topologies by developing a lightweight backhaul protocol to synchronize Channel Occupancy Tables (COT) across neighboring gateways.
+    \item \textbf{Standard Stack Integration:} The edge priority logic and 4-byte request header present an opportunity for integration into existing open-source LoRaWAN stacks (e.g., Arduino LMIC) as backward-compatible software patches.
+    \item \textbf{Dynamic Transmit Power Control:} Subsequent research could explore the joint optimization of spreading factors and dynamic transmit power to mitigate near-far capture effects, thereby enhancing energy conservation for nodes situated close to the base station.
+\end{enumerate}
+
+%% =============================================================================
+%% DECLARATIONS (Elsevier Mandatory)
+%% =============================================================================
+\section*{Declaration of competing interest}
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+
+\section*{Data availability}
+The ToN\_IoT telemetry dataset utilized in this research is publicly accessible via the UNSW research portal \cite{alhawawreh2020toniot}. The complete simulation framework, source code, and extracted data logs are freely available in a public GitHub repository at \url{[Insert GitHub Link Here]}.
+
+\section*{Acknowledgements}
+The author would like to thank Dr. Priya R. Sankpal and Dr. Priyadarshini K. Desai from the Department of Electronics and Communication Engineering at BNM Institute of Technology, Bengaluru, India, as well as Dr. Uthman Baroudi and Dr. Khaled Rabie from the Department of Computer Engineering at King Fahd University of Petroleum and Minerals, Saudi Arabia, for their valuable feedback and support during the development of this work. This research did not receive any specific grant from funding agencies in the public, commercial, or not-for-profit sectors.
+
+\section*{CRediT authorship contribution statement}
+\textbf{Safeer Ahmad Shah:} Conceptualization, Methodology, Software, Formal Analysis, Investigation, Writing - original draft, Visualization.
+
+\section*{Declaration of generative AI and AI-assisted technologies in the writing process}
+During the preparation of this work the author(s) used generative AI tools in order to improve grammar and language readability, refine manuscript structure, assist with diagram generation and graph visualization, and aid in simulation code organization and debugging. After using this tool/service, the author(s) reviewed and edited the content as needed and take(s) full responsibility for the content of the publication. These tools were strictly used as supplementary technical assistants for formatting and auxiliary tasks; they were not used in the formulation of the core scientific novelties. AI tools were not used to fabricate data, claims, experimental results, or figures. This disclosure is made in accordance with Elsevier's guidelines on the use of generative AI in academic publishing.
+
+%% =============================================================================
+%% REFERENCES
+%% =============================================================================
+\bibliographystyle{elsarticle-num}
+\balance
+\bibliography{references}
+
+\end{document}

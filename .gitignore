@@ -1,0 +1,30 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Raw Uncompressed CSVs (Generated CSVs and raw 140MB CSVs)
+*.csv
+
+# Simulation Results & Timeseries (Generated automatically by code/main.py)
+results/
+
+# Reference Paper PDFs (166MB)
+papers/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# VS Code & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
